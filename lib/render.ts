@@ -23,7 +23,7 @@ export interface FeedView {
     items: ItemView[];
 }
 
-const POLICY_KEYS: (keyof CommentRules)[] = ['maxLength', 'urlAutoLinking', 'allowStyle', 'allowLinks', 'allowCode', 'allowQuote',
+const POLICY_KEYS: (keyof CommentRules)[] = ['minLength', 'maxLength', 'urlAutoLinking', 'allowStyle', 'allowLinks', 'allowCode', 'allowQuote',
     'allowImages', 'allowTables', 'allowLists', 'allowHeadlines', 'requireSocialSpec', 'title', 'allowEdit', 'allowDelete', 'commentLimit', 'maxDepth'];
 
 export function policies(rules: SubmissionRules | CommentRules): Record<string, string | number | boolean> {

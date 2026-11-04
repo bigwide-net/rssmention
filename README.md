@@ -157,7 +157,7 @@ curl https://rm.example.org/groups/twowaves/status/a8Kd03XpQz
 
 If the submission is rejected, the status contains a code and a reason, for example
 `{"status":"failure","code":"title-required","text":"Posts require a title"}`. Other codes include
-`fetch-failed`, `invalid-feed`, `item-not-found`, `ambiguous-source`, `in-reply-to-missing`,
+`too-short`, `too-long`, `fetch-failed`, `invalid-feed`, `item-not-found`, `ambiguous-source`, `in-reply-to-missing`,
 `in-reply-to-mismatch`, `socialspec-missing`, `socialspec-mismatch`, `moderation-rejected` and `moderation-unavailable`.
 
 **5. Comment on the post.** The post is now in the group feed with guid `a8Kd03XpQz`. To comment, Bob
@@ -193,6 +193,10 @@ Runs of more than two `<br>` are cut to two. A submission is allowed 3 `<br>` pl
 of text, and 3 `<p>` plus 1 per 200. With `urlAutoLinking`, bare URLs become links after validation,
 so this also works when `allowLinks` is off.
 
+Length: `maxLength` counts the characters of the submitted Markdown, or of the HTML if there is no
+Markdown. `minLength` (default 10) counts the visible text after rendering, with whitespace collapsed,
+so markup doesn't count. A post that is only an image fails `minLength` unless it is set to 0.
+
 ## Feed extensions
 
 Every feed, including archives and comment feeds, describes the group's submission rules. A client
@@ -224,13 +228,13 @@ The group feed `/groups/twowaves/posts.json`, with the rules from `rssmention.ex
     "tos": "https://twowavesandadot.blog/discussion/tos.html",
     "policies": {
       "posts": {
-        "maxLength": 8000, "urlAutoLinking": true, "allowStyle": true, "allowLinks": true,
+        "minLength": 10, "maxLength": 8000, "urlAutoLinking": true, "allowStyle": true, "allowLinks": true,
         "allowCode": true, "allowQuote": false, "allowImages": false, "allowTables": false,
         "allowLists": true, "allowHeadlines": true, "requireSocialSpec": true, "title": "required",
         "allowEdit": false, "allowDelete": false, "commentLimit": 1000
       },
       "comments": {
-        "maxLength": 4000, "urlAutoLinking": true, "allowStyle": true, "allowLinks": true,
+        "minLength": 10, "maxLength": 4000, "urlAutoLinking": true, "allowStyle": true, "allowLinks": true,
         "allowCode": true, "allowQuote": false, "allowImages": false, "allowTables": false,
         "allowLists": false, "allowHeadlines": false, "requireSocialSpec": true, "title": "none",
         "allowEdit": false, "allowDelete": false, "commentLimit": 20, "maxDepth": 5
@@ -324,11 +328,11 @@ The same post in `/groups/twowaves/posts.xml`:
 <rm:submissions>
   <rm:url>https://rm.example.org/groups/twowaves/mention</rm:url>
   <rm:tos>https://twowavesandadot.blog/discussion/tos.html</rm:tos>
-  <rm:policies type="posts" maxLength="8000" urlAutoLinking="true" allowStyle="true" allowLinks="true"
+  <rm:policies type="posts" minLength="10" maxLength="8000" urlAutoLinking="true" allowStyle="true" allowLinks="true"
     allowCode="true" allowQuote="false" allowImages="false" allowTables="false" allowLists="true"
     allowHeadlines="true" requireSocialSpec="true" title="required" allowEdit="false" allowDelete="false"
     commentLimit="1000"/>
-  <rm:policies type="comments" maxLength="4000" urlAutoLinking="true" allowStyle="true" allowLinks="true"
+  <rm:policies type="comments" minLength="10" maxLength="4000" urlAutoLinking="true" allowStyle="true" allowLinks="true"
     allowCode="true" allowQuote="false" allowImages="false" allowTables="false" allowLists="false"
     allowHeadlines="false" requireSocialSpec="true" title="none" allowEdit="false" allowDelete="false"
     commentLimit="20" maxDepth="5"/>

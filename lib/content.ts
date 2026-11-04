@@ -6,7 +6,7 @@ import { LinkifyIt } from 'linkify-it';
 import { SubmissionRules, TitleRule } from './config';
 
 export type FailureCode =
-    | 'empty-content' | 'too-long' | 'malformed-html' | 'forbidden-element' | 'bad-nesting' | 'missing-attribute'
+    | 'empty-content' | 'too-short' | 'too-long' | 'malformed-html' | 'forbidden-element' | 'bad-nesting' | 'missing-attribute'
     | 'invalid-url' | 'url-too-long' | 'link-text-too-long' | 'weird-formatting' | 'title-required' | 'title-not-allowed'
     | 'title-too-long';
 
@@ -223,8 +223,13 @@ function collapseBreaks(tokens: Token[]): Token[] {
     return out;
 }
 
+const INLINE_ELEMENTS = new Set(['strong', 'em', 'a', 'code', 'q']);
+
+// Length of the visible text, with whitespace runs collapsed to one space. Block elements and <br>
+// separate words; inline elements don't.
 function textLength(tokens: Token[]): number {
-    return tokens.reduce((n, t) => n + (t.type == 'text' ? decodeEntities(t.raw).replace(/\s+/g, ' ').trim().length : 0), 0);
+    const text = tokens.map(t => t.type == 'text' ? decodeEntities(t.raw) : INLINE_ELEMENTS.has(t.name) ? '' : ' ').join('');
+    return text.replace(/\s+/g, ' ').trim().length;
 }
 
 function checkFormatting(tokens: Token[]): ContentFailure | undefined {
@@ -304,6 +309,9 @@ export function processContent(input: ContentInput, rules: SubmissionRules, kind
         result = autoLink(result);
     if (!textLength(result) && !result.some(t => t.type == 'open' && t.name == 'img'))
         return fail('empty-content', `${kind} has no content`);
+    const len = textLength(result);
+    if (len < rules.minLength)
+        return fail('too-short', `${kind} must have at least ${rules.minLength} characters of text: ${len} characters in ${kind.toLowerCase()}`);
     return { ok: true, html: serialize(result).trim(), markdown: md };
 }
 

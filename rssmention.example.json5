@@ -12,6 +12,7 @@
             adminToken: "change-me-to-a-long-random-token",
             submissionRules: {
                 general: { // common config for posts and comments. All optional.
+                    minLength: 10, // min. chars of visible text (default 10)
                     maxLength: 4000, // chars of the Markdown version if submitted, otherwise HTML length
                     urlAutoLinking: true,
                     allowStyle: true,

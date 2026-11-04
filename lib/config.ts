@@ -5,6 +5,8 @@ export type TitleRule = 'allowed' | 'required' | 'none';
 
 // Rules that can be set in submissionRules.general and overridden in .posts / .comments.
 export interface SubmissionRules {
+    // Min. characters of visible text, after whitespace is collapsed.
+    minLength: number;
     maxLength: number;
     urlAutoLinking: boolean;
     allowStyle: boolean;
@@ -52,6 +54,7 @@ export interface Config {
 export const RSSMENTION_NS = 'https://rssmention.bigwide.net/';
 
 const GENERAL_DEFAULTS: SubmissionRules = {
+    minLength: 10,
     maxLength: 4000,
     urlAutoLinking: true,
     allowStyle: true,
@@ -79,7 +82,7 @@ export const DEFAULT_MODERATION_PROMPT = 'Below is a discussion forum post for y
 
 const BOOLEAN_RULES = ['urlAutoLinking', 'allowStyle', 'allowLinks', 'allowCode', 'allowQuote', 'allowImages', 'allowTables',
     'allowLists', 'allowHeadlines', 'requireSocialSpec', 'allowEdit', 'allowDelete'];
-const NUMBER_RULES = ['maxLength', 'commentLimit', 'maxDepth'];
+const NUMBER_RULES = ['minLength', 'maxLength', 'commentLimit', 'maxDepth'];
 
 export class ConfigError extends Error {}
 
@@ -120,6 +123,11 @@ function parseGroup(id: string, raw: any): GroupConfig {
     if ('maxDepth' in general || 'maxDepth' in posts)
         throw new ConfigError(`${where}: maxDepth is only allowed in submissionRules.comments`);
     const socialSpec = requireString(`${where}.socialSpec`, raw.socialSpec, true);
+    const postRules: SubmissionRules = { ...GENERAL_DEFAULTS, ...POST_DEFAULTS, ...general, ...posts };
+    const commentRules = { ...GENERAL_DEFAULTS, ...COMMENT_DEFAULTS, ...general, ...comments } as CommentRules;
+    for (const [type, r] of [['posts', postRules], ['comments', commentRules]] as const)
+        if (r.minLength > r.maxLength)
+            throw new ConfigError(`${where}: minLength of ${type} must not exceed maxLength`);
     return {
         id,
         name: requireString(`${where}.name`, raw.name)!,
@@ -127,8 +135,8 @@ function parseGroup(id: string, raw: any): GroupConfig {
         socialSpec: socialSpec?.replace(/^@/, ''),
         tos: requireString(`${where}.tos`, raw.tos, true),
         adminToken,
-        posts: { ...GENERAL_DEFAULTS, ...POST_DEFAULTS, ...general, ...posts },
-        comments: { ...GENERAL_DEFAULTS, ...COMMENT_DEFAULTS, ...general, ...comments } as CommentRules,
+        posts: postRules,
+        comments: commentRules,
         moderationLLM: requireString(`${where}.submissionRules.moderationLLM`, rules.moderationLLM, true),
         moderationPrompt: requireString(`${where}.submissionRules.moderationPrompt`, rules.moderationPrompt, true) ?? DEFAULT_MODERATION_PROMPT,
     };

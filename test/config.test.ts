@@ -66,6 +66,7 @@ describe('parseConfig()', () => {
         expect(() => parseConfig(minimal({ submissionRules: { general: { allowFoo: true } } }), {})).toThrow('unknown rule allowFoo');
         expect(() => parseConfig(minimal({ submissionRules: { posts: { title: 'maybe' } } }), {})).toThrow('title');
         expect(() => parseConfig(minimal({ submissionRules: { posts: { maxLength: -1 } } }), {})).toThrow('maxLength');
+        expect(() => parseConfig(minimal({ submissionRules: { comments: { minLength: 5000 } } }), {})).toThrow('minLength of comments must not exceed maxLength');
         expect(() => parseConfig(minimal({ submissionRules: { general: { maxDepth: 3 } } }), {})).toThrow('maxDepth');
         expect(() => parseConfig(minimal({ submissionRules: { comments: { allowLinks: 'yes' } } }), {})).toThrow('allowLinks');
     });

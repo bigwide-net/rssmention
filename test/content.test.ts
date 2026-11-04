@@ -2,7 +2,7 @@ import { CommentRules, parseConfig } from '../lib/config';
 import { decodeEntities, processContent, processTitle } from '../lib/content';
 
 const config = parseConfig(`{baseUrl: 'https://x.org', groups: {g: {name: 'n', topic: 't', adminToken: 'abcdefghijklmn'}}}`);
-const rules: CommentRules = { ...config.groups.g.comments, urlAutoLinking: false };
+const rules: CommentRules = { ...config.groups.g.comments, urlAutoLinking: false, minLength: 0 };
 const all: CommentRules = { ...rules, allowImages: true, allowTables: true, allowHeadlines: true, allowLists: true, allowQuote: true };
 
 function ok(input: Parameters<typeof processContent>[0], r = rules): string {
@@ -18,6 +18,29 @@ function failure(input: Parameters<typeof processContent>[0], r = rules) {
 }
 
 describe('processContent()', () => {
+    describe('minLength', () => {
+        const min = { ...rules, minLength: 10 };
+
+        it('defaults to 10', () => {
+            expect(config.groups.g.posts.minLength).toBe(10);
+            expect(config.groups.g.comments.minLength).toBe(10);
+        });
+
+        it('rejects content with less visible text', () => {
+            expect(failure({ markdown: 'Too **short**' }, { ...rules, minLength: 20 })).toEqual({ ok: false, code: 'too-short',
+                text: 'Post must have at least 20 characters of text: 9 characters in post' });
+            expect(failure({ html: '<p>Thanks!</p>' }, min).code).toBe('too-short');
+            expect(failure({ html: '<p>  a    b  </p>' }, { ...min, minLength: 4 }).code).toBe('too-short');
+        });
+
+        it('counts text, not markup', () => {
+            expect(ok({ html: '<p><strong>0123456789</strong></p>' }, min)).toBe('<p><strong>0123456789</strong></p>');
+            expect(ok({ markdown: '0123456789' }, min)).toBe('<p>0123456789</p>');
+            expect(ok({ html: '<p>01234<em>56789</em></p>' }, min)).toBe('<p>01234<em>56789</em></p>');
+            expect(failure({ html: '<p>01234<em>5678</em></p>' }, min).code).toBe('too-short');
+        });
+    });
+
     describe('markdown', () => {
         it('converts markdown to html', () => {
             expect(ok({ markdown: 'Hello **world** and *you*' })).toBe('<p>Hello <strong>world</strong> and <em>you</em></p>');
