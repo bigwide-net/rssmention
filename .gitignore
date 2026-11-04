@@ -1,0 +1,7 @@
+node_modules/
+dist/
+var/
+coverage/
+.env
+*.tsbuildinfo
+rssmention.json5
