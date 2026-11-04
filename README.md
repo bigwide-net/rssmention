@@ -132,3 +132,7 @@ $RSSMENTION_VAR/groups/<group>/
 ```
 
 Post guids are 10 base62 characters. A comment guid is `<parent-guid>-<5 base36 characters>`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

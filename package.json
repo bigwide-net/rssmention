@@ -13,7 +13,7 @@
     "test:coverage": "jest --coverage"
   },
   "author": "Tim Jansen",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@downread/happy-server": "^1.1.0",
     "cors": "^2.8.6",
