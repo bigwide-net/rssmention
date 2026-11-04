@@ -15,7 +15,7 @@ import { isSelfOrDescendant, parentGuidOf, postGuidOf } from './ids';
 
 export const FEED_FILE_SIZE = 50;
 export const JSON_FEED_VERSION = 'https://jsonfeed.org/version/1.1';
-export const SOURCE_ABOUT = 'https://github.com/downread/RFCs/blob/main/Downread-RFC-1-Source-for-JSON-Feeds.md';
+export const SOURCE_ABOUT = 'https://github.com/bigwide-net/RFCs/blob/main/RFC-1-Source-for-JSON-Feeds.md';
 
 export type LogKind = 'submissions' | 'failed' | 'published';
 

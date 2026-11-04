@@ -73,6 +73,104 @@ Synchronous checks (URL syntax, target exists, comments allowed, limits, depth) 
 checks pass, the response is `201` with `Location: <status page>`. Processing then runs asynchronously,
 one submission at a time (queue limit 100, after that 503).
 
+### Example: sending a post
+
+Alice publishes her feed at `https://alice.example.com/feed.xml` and wants to post in the group
+`twowaves` on `https://rm.example.org`.
+
+**1. Find the endpoint and the rules.** Fetch the group feed. The webmention endpoint is in
+`<atom:link rel="webmention">` and `<rm:url>` (JSON: `_submissions.url`). `<rm:policies type="posts">`
+lists the rules, for example whether a title is required and which HTML is allowed.
+
+```
+curl https://rm.example.org/groups/twowaves/posts.xml
+```
+
+**2. Publish the item in her own feed.** `source:inReplyTo` is the group feed. The `socialspec` account
+must be the host name of her feed if `requireSocialSpec` is set.
+
+```xml
+<rss version="2.0" xmlns:source="http://source.scripting.com/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Alice's blog</title>
+    <link>https://alice.example.com/</link>
+    <source:account service="socialspec">@alice.example.com</source:account>
+    <item>
+      <guid isPermaLink="false">post-2026-11-04</guid>
+      <title>Is RSS the better social network?</title>
+      <link>https://alice.example.com/2026/11/rss-social</link>
+      <pubDate>Wed, 04 Nov 2026 10:00:00 GMT</pubDate>
+      <dc:creator>Alice</dc:creator>
+      <description>&lt;p&gt;I think &lt;strong&gt;feeds&lt;/strong&gt; are all we need.&lt;/p&gt;</description>
+      <source:markdown>I think **feeds** are all we need.</source:markdown>
+      <source:inReplyTo>https://rm.example.org/groups/twowaves/posts.xml</source:inReplyTo>
+    </item>
+  </channel>
+</rss>
+```
+
+The same item in JSON Feed:
+
+```json
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Alice's blog",
+  "_source": { "accounts": { "socialspec": "@alice.example.com" } },
+  "items": [{
+    "id": "post-2026-11-04",
+    "title": "Is RSS the better social network?",
+    "url": "https://alice.example.com/2026/11/rss-social",
+    "date_published": "2026-11-04T10:00:00Z",
+    "authors": [{ "name": "Alice" }],
+    "content_html": "<p>I think <strong>feeds</strong> are all we need.</p>",
+    "_source": {
+      "markdown": "I think **feeds** are all we need.",
+      "inReplyTo": "https://rm.example.org/groups/twowaves/posts.json"
+    }
+  }]
+}
+```
+
+**3. Send the webmention.** The source is the feed URL plus `#guid`. The target is the group feed.
+
+```
+curl -i https://rm.example.org/groups/twowaves/mention \
+  --data-urlencode 'source=https://alice.example.com/feed.xml#post-2026-11-04' \
+  --data-urlencode 'target=https://rm.example.org/groups/twowaves/posts.xml'
+```
+
+```
+HTTP/1.1 201 Created
+Location: https://rm.example.org/groups/twowaves/status/a8Kd03XpQz
+
+{"status":"waiting","guid":"a8Kd03XpQz","statusUrl":"https://rm.example.org/groups/twowaves/status/a8Kd03XpQz"}
+```
+
+A request that fails the synchronous checks gets `400` with `{"type": "...", "message": "..."}`.
+
+**4. Poll the status page** until the status is no longer `waiting`:
+
+```
+curl https://rm.example.org/groups/twowaves/status/a8Kd03XpQz
+{"status":"success","pubDate":"2026-11-04T10:00:00.000Z","pubUrl":"https://rm.example.org/groups/twowaves/posts.json#a8Kd03XpQz"}
+```
+
+If the submission is rejected, the status contains a code and a reason, for example
+`{"status":"failure","code":"title-required","text":"Posts require a title"}`. Other codes include
+`fetch-failed`, `invalid-feed`, `item-not-found`, `ambiguous-source`, `in-reply-to-missing`,
+`in-reply-to-mismatch`, `socialspec-missing`, `socialspec-mismatch`, `moderation-rejected` and `moderation-unavailable`.
+
+**5. Comment on the post.** The post is now in the group feed with guid `a8Kd03XpQz`. To comment, Bob
+publishes an item with `source:inReplyTo` set to
+`https://rm.example.org/groups/twowaves/posts.xml#a8Kd03XpQz` and sends a webmention with that target.
+His comment gets a guid like `a8Kd03XpQz-k2m9x` and appears in
+`/groups/twowaves/comments/a8Kd03XpQz/comments.xml`. To reply to Bob, the target is that comments feed plus
+`#a8Kd03XpQz-k2m9x`.
+
+**6. Edit or delete (optional).** If the group sets `allowEdit`, Alice changes the item in her feed and
+sends the same webmention again. If it sets `allowDelete`, she removes the item from her feed and sends
+it again.
+
 ### Content rules
 
 The HTML must be well-formed. `<p>` and `<br>` are always allowed. The other elements depend on the
@@ -97,27 +195,163 @@ so this also works when `allowLinks` is off.
 
 ## Feed extensions
 
-Every feed includes the submission configuration.
+Every feed, including archives and comment feeds, describes the group's submission rules. A client
+can post and comment using only what the feed contains. rssmention uses two vocabularies:
 
-RSS (namespace `xmlns:rm="https://rssmention.bigwide.net/"`):
+- **Source**: the [RSS `source:` namespace](http://source.scripting.com/) and its JSON Feed equivalent
+  `_source`, defined in [RFC-1: Source for JSON Feeds](https://github.com/bigwide-net/RFCs/blob/main/RFC-1-Source-for-JSON-Feeds.md).
+  It covers `markdown`, `accounts`, `inReplyTo` and `comments`. RFC-1 maps each `source:` element to a
+  `_source` field, so both formats have the same content.
+- **rssmention** (`https://rssmention.bigwide.net/`): `submissions` (the endpoint and rules) and
+  `commenting` (whether a post accepts comments). In RSS these use the `rm:` prefix. In JSON Feed they
+  are `_submissions` and `_commenting`, each with `about` set to the namespace URL.
 
-```xml
-<rm:submissions>
-  <rm:url>https://…/groups/twowaves/mention</rm:url>
-  <rm:tos>https://…/tos.html</rm:tos>
-  <rm:policies type="posts" maxLength="8000" title="required" … commentLimit="1000"/>
-  <rm:policies type="comments" maxLength="4000" title="none" … commentLimit="20" maxDepth="5"/>
-  <rm:republish>true</rm:republish>
-</rm:submissions>
+### JSON Feed
+
+The group feed `/groups/twowaves/posts.json`, with the rules from `rssmention.example.json5`:
+
+```json
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "title": "Two Waves RSS Discussion",
+  "description": "Discussions about RSS, podcasts, open social networks and similar technology",
+  "home_page_url": "https://rm.example.org/groups/twowaves/posts.json",
+  "feed_url": "https://rm.example.org/groups/twowaves/posts.json",
+  "next_url": "https://rm.example.org/groups/twowaves/archive/posts-3.json",
+  "_submissions": {
+    "about": "https://rssmention.bigwide.net/",
+    "url": "https://rm.example.org/groups/twowaves/mention",
+    "tos": "https://twowavesandadot.blog/discussion/tos.html",
+    "policies": {
+      "posts": {
+        "maxLength": 8000, "urlAutoLinking": true, "allowStyle": true, "allowLinks": true,
+        "allowCode": true, "allowQuote": false, "allowImages": false, "allowTables": false,
+        "allowLists": true, "allowHeadlines": true, "requireSocialSpec": true, "title": "required",
+        "allowEdit": false, "allowDelete": false, "commentLimit": 1000
+      },
+      "comments": {
+        "maxLength": 4000, "urlAutoLinking": true, "allowStyle": true, "allowLinks": true,
+        "allowCode": true, "allowQuote": false, "allowImages": false, "allowTables": false,
+        "allowLists": false, "allowHeadlines": false, "requireSocialSpec": true, "title": "none",
+        "allowEdit": false, "allowDelete": false, "commentLimit": 20, "maxDepth": 5
+      }
+    },
+    "republish": true
+  },
+  "_source": {
+    "about": "https://github.com/bigwide-net/RFCs/blob/main/RFC-1-Source-for-JSON-Feeds.md",
+    "accounts": { "socialspec": "@twowavesandadot.blog" }
+  },
+  "items": [{
+    "id": "a8Kd03XpQz",
+    "url": "https://alice.example.com/2026/11/rss-social",
+    "title": "Is RSS the better social network?",
+    "content_html": "<p>I think <strong>feeds</strong> are all we need.</p>",
+    "date_published": "2026-11-04T10:00:00.000Z",
+    "authors": [{ "name": "Alice" }],
+    "_source": {
+      "about": "https://github.com/bigwide-net/RFCs/blob/main/RFC-1-Source-for-JSON-Feeds.md",
+      "markdown": "I think **feeds** are all we need.",
+      "accounts": { "socialspec": "@alice.example.com" },
+      "comments": {
+        "feedUrl": "https://rm.example.org/groups/twowaves/comments/a8Kd03XpQz/comments.json",
+        "count": 3,
+        "total": 7
+      }
+    },
+    "_commenting": { "about": "https://rssmention.bigwide.net/", "allowComments": true }
+  }]
+}
 ```
 
-Each post has `<rm:commenting><rm:allowComments>true</rm:allowComments></rm:commenting>`. Posts and
-comments have `<source:comments count="…" feedUrl="…"/>`.
+A comment in `/groups/twowaves/comments/a8Kd03XpQz/comments.json` also has `_source.inReplyTo`, which
+points to its parent. It has no `title` and no `_commenting`:
 
-JSON Feed: `_submissions` (`about`, `url`, `tos`, `policies: {posts, comments}`, `republish`).
-`_commenting` (`about`, `allowComments`) on posts. `_source.comments` (`feedUrl`, `count`, plus `total`
-on posts) as in Downread RFC-1. `_source.accounts` uses the map form, for example
-`{"socialspec": "@host"}`.
+```json
+{
+  "id": "a8Kd03XpQz-k2m9x",
+  "content_html": "<p>Agreed, but discovery is hard.</p>",
+  "date_published": "2026-11-04T10:20:00.000Z",
+  "authors": [{ "name": "Bob" }],
+  "_source": {
+    "about": "https://github.com/bigwide-net/RFCs/blob/main/RFC-1-Source-for-JSON-Feeds.md",
+    "accounts": { "socialspec": "@bob.example.net" },
+    "inReplyTo": "https://rm.example.org/groups/twowaves/posts.json#a8Kd03XpQz",
+    "comments": {
+      "feedUrl": "https://rm.example.org/groups/twowaves/comments/a8Kd03XpQz/a8Kd03XpQz-k2m9x/comments.json",
+      "count": 1
+    }
+  }
+}
+```
+
+| Field | Where | Meaning |
+|---|---|---|
+| `_submissions.url` | feed | webmention endpoint for posts and comments |
+| `_submissions.tos` | feed | terms of service, if configured |
+| `_submissions.policies.posts` / `.comments` | feed | the effective rules (see [Content rules](#content-rules) and `rssmention.example.json5`) |
+| `_submissions.republish` | feed | always `true`: submissions are republished in this feed |
+| `_source.accounts.socialspec` | feed, item | the group's account (feed) or the verified author account (item). RFC-1 map form |
+| `_source.markdown` | item | the Markdown the author submitted, if any. `content_html` is always set |
+| `_source.inReplyTo` | comment | the parent post or comment: its feed URL plus `#guid` |
+| `_source.comments.feedUrl` | item | the feed with the direct replies. Use it plus `#guid` as the target of a reply |
+| `_source.comments.count` | item | number of direct replies |
+| `_source.comments.total` | post | number of comments on all levels (limit: `posts.commentLimit`) |
+| `_commenting.allowComments` | post | `false` if an admin closed the post for comments |
+| `next_url` | feed | the next older archive page |
+
+When submitting, the client feed uses the same fields: `_source.inReplyTo`, `_source.markdown` and
+`_source.accounts`. rssmention also accepts the RFC-1 list form of `accounts`
+(`[{"service": "socialspec", "name": "@host"}]`) and `inReplyTo` as an object with `value`. A post
+can set `_commenting.allowComments: false` to start with comments disabled.
+
+### RSS
+
+The same post in `/groups/twowaves/posts.xml`:
+
+```xml
+<rss version="2.0" xmlns:source="http://source.scripting.com/" xmlns:rm="https://rssmention.bigwide.net/"
+     xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/"
+     xmlns:fh="http://purl.org/syndication/history/1.0">
+<channel>
+<title>Two Waves RSS Discussion</title>
+<link>https://rm.example.org/groups/twowaves/posts.xml</link>
+<description>Discussions about RSS, podcasts, open social networks and similar technology</description>
+<atom:link rel="self" href="https://rm.example.org/groups/twowaves/posts.xml" type="application/rss+xml"/>
+<atom:link rel="webmention" href="https://rm.example.org/groups/twowaves/mention"/>
+<atom:link rel="prev-archive" href="https://rm.example.org/groups/twowaves/archive/posts-3.xml"/>
+<source:account service="socialspec">@twowavesandadot.blog</source:account>
+<rm:submissions>
+  <rm:url>https://rm.example.org/groups/twowaves/mention</rm:url>
+  <rm:tos>https://twowavesandadot.blog/discussion/tos.html</rm:tos>
+  <rm:policies type="posts" maxLength="8000" urlAutoLinking="true" allowStyle="true" allowLinks="true"
+    allowCode="true" allowQuote="false" allowImages="false" allowTables="false" allowLists="true"
+    allowHeadlines="true" requireSocialSpec="true" title="required" allowEdit="false" allowDelete="false"
+    commentLimit="1000"/>
+  <rm:policies type="comments" maxLength="4000" urlAutoLinking="true" allowStyle="true" allowLinks="true"
+    allowCode="true" allowQuote="false" allowImages="false" allowTables="false" allowLists="false"
+    allowHeadlines="false" requireSocialSpec="true" title="none" allowEdit="false" allowDelete="false"
+    commentLimit="20" maxDepth="5"/>
+  <rm:republish>true</rm:republish>
+</rm:submissions>
+<item>
+  <title>Is RSS the better social network?</title>
+  <link>https://alice.example.com/2026/11/rss-social</link>
+  <guid isPermaLink="false">a8Kd03XpQz</guid>
+  <pubDate>Wed, 04 Nov 2026 10:00:00 GMT</pubDate>
+  <dc:creator>Alice</dc:creator>
+  <description>&lt;p&gt;I think &lt;strong&gt;feeds&lt;/strong&gt; are all we need.&lt;/p&gt;</description>
+  <source:markdown>I think **feeds** are all we need.</source:markdown>
+  <source:account service="socialspec">@alice.example.com</source:account>
+  <source:comments count="3" feedUrl="https://rm.example.org/groups/twowaves/comments/a8Kd03XpQz/comments.xml"/>
+  <rm:commenting><rm:allowComments>true</rm:allowComments></rm:commenting>
+</item>
+</channel>
+</rss>
+```
+
+Comments in RSS also have `<source:inReplyTo>`. RSS has no field for the total comment count. Archive
+pages contain `<fh:archive/>` (RFC 5005).
 
 ## Storage
 
