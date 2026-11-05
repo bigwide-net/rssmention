@@ -39,7 +39,8 @@ export function submissionsJson(config: Config, group: GroupConfig) {
         url: mentionUrl(config, group.id),
         ...(group.tos ? { tos: group.tos } : {}),
         policies: { ...(group.acceptPosts ? { posts: policies(group.posts) } : {}), comments: policies(group.comments) },
-        republish: group.republish,
+        // rssmention always republishes in full; RFC-4 also defines 'summary' and 'no'.
+        republish: 'full',
     };
 }
 
@@ -110,7 +111,7 @@ function rssSubmissions(config: Config, group: GroupConfig): string {
         group.tos ? '  ' + el('rm:tos', group.tos) : '',
         group.acceptPosts ? '  ' + policy('posts', group.posts) : '',
         '  ' + policy('comments', group.comments),
-        '  ' + el('rm:republish', String(group.republish)),
+        '  ' + el('rm:republish', 'full'),
         '</rm:submissions>'].filter(Boolean).join('\n');
 }
 

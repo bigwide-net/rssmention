@@ -11,7 +11,6 @@
             tos: "https://twowavesandadot.blog/discussion/tos.html", // will be given to clients
             adminToken: "change-me-to-a-long-random-token",
             // externalFeeds: ["https://twowavesandadot.blog/feed.xml"], // host comments for the posts of these feeds; no posts feed
-            // republish: false, // only store accepted submissions for the admin (log "received")
             submissionRules: {
                 general: { // common config for posts and comments. All optional.
                     minLength: 10, // min. chars of visible text (default 10)

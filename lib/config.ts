@@ -45,8 +45,6 @@ export interface GroupConfig {
     // Feeds hosted elsewhere (e.g. a blog's RSS and JSON feed) whose posts accept comments here. Their
     // targets are <feed URL>#<guid>. Groups with external feeds have no posts feed of their own.
     externalFeeds?: string[];
-    // false: accepted submissions are only stored for the admin (log "received"), not published.
-    republish: boolean;
     moderationLLM?: string;
     moderationPrompt: string;
 }
@@ -149,8 +147,6 @@ function parseGroup(id: string, raw: any): GroupConfig {
         throw new ConfigError(`${where}: maxDepth is only allowed in submissionRules.comments`);
     const socialSpec = requireString(`${where}.socialSpec`, raw.socialSpec, true);
     const externalFeeds = parseExternalFeeds(`${where}.externalFeeds`, raw.externalFeeds);
-    if (raw.republish !== undefined && typeof raw.republish != 'boolean')
-        throw new ConfigError(`${where}.republish must be a boolean`);
     const postRules: SubmissionRules = { ...GENERAL_DEFAULTS, ...POST_DEFAULTS, ...general, ...posts };
     const commentRules = { ...GENERAL_DEFAULTS, ...COMMENT_DEFAULTS, ...general, ...comments } as CommentRules;
     for (const [type, r] of [['posts', postRules], ['comments', commentRules]] as const)
@@ -167,7 +163,6 @@ function parseGroup(id: string, raw: any): GroupConfig {
         posts: postRules,
         comments: commentRules,
         ...(externalFeeds ? { externalFeeds } : {}),
-        republish: raw.republish ?? true,
         moderationLLM: requireString(`${where}.submissionRules.moderationLLM`, rules.moderationLLM, true),
         moderationPrompt: requireString(`${where}.submissionRules.moderationPrompt`, rules.moderationPrompt, true) ?? DEFAULT_MODERATION_PROMPT,
     };

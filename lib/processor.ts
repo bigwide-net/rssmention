@@ -251,17 +251,6 @@ export async function processSubmission(sub: Submission): Promise<void> {
     const moderation = await processorDeps.moderate(group, [item.title, src.markdown ?? item.content_html].filter(Boolean).join('\n\n'));
     if (!moderation.ok) return fail({ code: moderation.code, text: moderation.text }, item);
 
-    if (!group.republish) {
-        // Accepted, but only stored for the admin.
-        await withGroupLock(group.id, async () => {
-            await appendToLog(group.id, 'received', item);
-            await setSource(group.id, new URL(item._rssmention.source).href, item.id);
-        });
-        setStatus(group.id, sub.guid, { status: 'success', pubDate: item.date_published });
-        log.info('Received {0}', sub.guid);
-        return;
-    }
-
     const published = await withGroupLock(group.id, () => publishItem(group, item));
     if ('failure' in published) return fail(published.failure, item);
     setStatus(group.id, sub.guid, { status: 'success', pubDate: published.pubDate, pubUrl: itemUrl(getConfig(), group.id, sub.guid, 'json') });

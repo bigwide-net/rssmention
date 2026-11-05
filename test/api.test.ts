@@ -108,7 +108,7 @@ describe('rssmention API', () => {
                     url: `${G}/mention`,
                     tos: 'https://twowaves.example/tos.html',
                     policies: { posts: { maxLength: 8000, title: 'required', commentLimit: 1000 }, comments: { title: 'none', commentLimit: 20, maxDepth: 5 } },
-                    republish: true,
+                    republish: 'full',
                 },
                 _source: { accounts: { socialspec: '@twowaves.example' } },
             });
@@ -141,7 +141,7 @@ describe('rssmention API', () => {
             expect(channel['rm:submissions']['rm:url']).toBe(`${G}/mention`);
             expect(channel['rm:submissions']['rm:policies'].map((p: any) => p['@_type'])).toEqual(['posts', 'comments']);
             expect(channel['rm:submissions']['rm:policies'][0]['@_maxLength']).toBe('8000');
-            expect(channel['rm:submissions']['rm:republish']).toBe('true');
+            expect(channel['rm:submissions']['rm:republish']).toBe('full');
             expect(channel['source:account']['#text']).toBe('@twowaves.example');
             expect(channel.item.guid['#text']).toBe(guid);
             expect(channel.item.title).toBe('Hello group');
@@ -647,7 +647,7 @@ describe('rssmention API', () => {
 
         it('serves the submissions element for the external feed', async () => {
             const json = await feed('/groups/twowaves/submissions.json');
-            expect(json._submissions).toMatchObject({ url: `${G}/mention`, republish: true });
+            expect(json._submissions).toMatchObject({ url: `${G}/mention`, republish: 'full' });
             expect(json._submissions.policies.posts).toBeUndefined();
             const xml = (await request(app).get('/groups/twowaves/submissions.xml')).text;
             expect(xml).toContain('<rm:submissions xmlns:rm="https://rssmention.bigwide.net/">');
@@ -662,20 +662,6 @@ describe('rssmention API', () => {
             expect((await mention(ALICE, `${G}/posts.xml`)).body.message).toBe('This group does not accept new posts');
             const posts = await feed('/groups/twowaves/posts.json');
             expect(posts._submissions.policies).toEqual({ comments: expect.any(Object) });
-        });
-    });
-
-    describe('republish: false', () => {
-        it('stores accepted submissions for the admin only', async () => {
-            setup({ republish: false });
-            sources[ALICE] = { status: 200, body: rssFeed([alicePost()]) };
-            const { guid, status } = await submit(ALICE, `${G}/posts.xml`);
-            expect(status).toEqual({ status: 'success', pubDate: expect.any(String) });
-            expect((await feed('/groups/twowaves/posts.json')).items).toEqual([]);
-            expect((await feed('/groups/twowaves/posts.json'))._submissions.republish).toBe(false);
-            const received = await request(app).get('/groups/twowaves/admin/received').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
-            expect(received.body.items.map((i: any) => i.id)).toEqual([guid]);
-            expect((await mention(ALICE, `${G}/posts.xml`)).body.message).toBe('This source has already been submitted');
         });
     });
 });

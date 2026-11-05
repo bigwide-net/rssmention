@@ -32,11 +32,11 @@ async function findPublished(group: GroupConfig, guid: string): Promise<StoredIt
     return parentGuidOf(guid) ? findComment(group.id, guid) : findPublishedPost(group.id, guid);
 }
 
-// GET /groups/:group/admin/:log?archive=<n> with log = submissions | failed | published | received
+// GET /groups/:group/admin/:log?archive=<n> with log = submissions | failed | published
 export async function listLogHandler(_log: LogContext, event: IncomingHttpRequest) {
     const group = authenticate(event);
     const kind = event.pathParameters.log as LogKind;
-    if (!['submissions', 'failed', 'published', 'received'].includes(kind)) throw new NotFoundError('Unknown log');
+    if (!['submissions', 'failed', 'published'].includes(kind)) throw new NotFoundError('Unknown log');
     const archiveParam = event.queryStringParameters.archive;
     const archive = archiveParam === undefined ? undefined : Number(archiveParam);
     if (archive !== undefined && !(Number.isInteger(archive) && archive > 0)) throw new InvalidRequestError('Invalid archive');

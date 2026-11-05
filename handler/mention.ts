@@ -102,7 +102,7 @@ export async function mentionHandler(log: LogContext, event: IncomingHttpRequest
     const existing = await findSource(group.id, sourceKey(source));
     if (existing) {
         const rules = rulesFor(group, existing);
-        if (!group.republish || (!rules.allowEdit && !rules.allowDelete))
+        if ((!rules.allowEdit && !rules.allowDelete))
             throw new InvalidRequestError('This source has already been submitted');
         const published = parentGuidOf(existing) ? await findComment(group.id, existing) : await findPublishedPost(group.id, existing);
         if (published && normalizeFeedRef(published._rssmention.target) != normalizeFeedRef(target))

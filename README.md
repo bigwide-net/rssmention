@@ -26,9 +26,9 @@ npm test
 | `LIMITS_*` | rate limits, see `lib/limits.middleware.ts` |
 | `HAPPY_SECRET` | secret for the `/happy` health endpoints |
 
-## Groups, blogs and inboxes
+## Groups and blogs
 
-Every entry in `groups` is one target. Three options in the config change what it does:
+Every entry in `groups` is one target. Two options in the config change what it does:
 
 - **Discussion group** (default): the group has its own posts feed. Anyone can post, and comment on posts.
 - **Comments for a blog** (`externalFeeds`): the posts live in a feed elsewhere, for example
@@ -41,8 +41,9 @@ Every entry in `groups` is one target. Three options in the config change what i
 - **Comments only** (`submissionRules: { posts: false }`): a group whose posts are created by the admin
   only. The post rules still limit the comments per post (`posts.commentLimit`).
 
-`republish: false` on a group accepts submissions without publishing them. They are stored in the admin
-log `received`, like messages to the owner. Resubmitting the same source is rejected.
+rssmention always republishes accepted submissions in full (`republish: "full"`). RFC-4 also defines
+`summary` (an abstract with a link) and `no` (submissions go to the owner only), but rssmention doesn't
+implement them.
 
 ## Endpoints
 
@@ -63,7 +64,7 @@ Admin endpoints need the header `Authorization: Bearer <adminToken>`:
 
 | Method & path | |
 |---|---|
-| `GET /admin/(submissions\|failed\|published\|received)[?archive=n]` | group logs with internal data (`received`: with `republish: false`) |
+| `GET /admin/(submissions\|failed\|published)[?archive=n]` | group logs with internal data |
 | `GET /admin/items/<guid>` | a published post or comment, its post metadata, and failed replies |
 | `PUT /admin/items/<guid>` `{title?, text}` | replaces a post or comment; the author becomes "Admin" |
 | `DELETE /admin/items/<guid>` | deletes a post or comment and all replies to it |
@@ -263,7 +264,7 @@ The group feed `/groups/twowaves/posts.json`, with the rules from `rssmention.ex
         "allowEdit": false, "allowDelete": false, "commentLimit": 20, "maxDepth": 5
       }
     },
-    "republish": true
+    "republish": "full"
   },
   "_source": {
     "about": "https://github.com/bigwide-net/RFCs/blob/main/RFC-1-Source-for-JSON-Feeds.md",
@@ -317,7 +318,7 @@ points to its parent. It has no `title` and no `_commenting`:
 | `_submissions.url` | feed | webmention endpoint for posts and comments |
 | `_submissions.tos` | feed | terms of service, if configured |
 | `_submissions.policies.posts` / `.comments` | feed | the effective rules (see [Content rules](#content-rules) and `rssmention.example.json5`) |
-| `_submissions.republish` | feed | always `true`: submissions are republished in this feed |
+| `_submissions.republish` | feed | always `"full"`: submissions are republished in full in this feed |
 | `_source.accounts.socialspec` | feed, item | the group's account (feed) or the verified author account (item). RFC-1 map form |
 | `_source.markdown` | item | the Markdown the author submitted, if any. `content_html` is always set |
 | `_source.inReplyTo` | comment | the parent post or comment: its feed URL plus `#guid` |
@@ -359,7 +360,7 @@ The same post in `/groups/twowaves/posts.xml`:
     allowCode="true" allowQuote="false" allowImages="false" allowTables="false" allowLists="false"
     allowHeadlines="false" requireSocialSpec="true" title="none" allowEdit="false" allowDelete="false"
     commentLimit="20" maxDepth="5"/>
-  <rm:republish>true</rm:republish>
+  <rm:republish>full</rm:republish>
 </rm:submissions>
 <item>
   <title>Is RSS the better social network?</title>
@@ -389,7 +390,6 @@ $RSSMENTION_VAR/groups/<group>/
   comments/<post>/post.json                                           archive no., reply counts, allowComments
   comments/<post>/comments-published-<parent>.json                    direct replies to <parent>
   comments/<post>/comments-failed-<parent>.json                       latest 50 failed replies
-  group-received.json, archive/group-received-<n>.json                accepted submissions with republish: false
   sources.json                                                        source URL → guid (edits/deletes)
 ```
 

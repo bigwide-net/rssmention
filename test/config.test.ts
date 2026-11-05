@@ -53,17 +53,16 @@ describe('parseConfig()', () => {
         expect(config).toMatchObject({ varDir: '/data', port: 9000, baseUrl: 'https://other.example' });
     });
 
-    it('parses externalFeeds, posts: false and republish', () => {
+    it('parses externalFeeds and posts: false', () => {
         const g = parseConfig(minimal(), {}).groups.g;
-        expect(g).toMatchObject({ acceptPosts: true, republish: true });
+        expect(g).toMatchObject({ acceptPosts: true });
         expect(g.externalFeeds).toBeUndefined();
         expect(parseConfig(minimal({ submissionRules: { posts: false } }), {}).groups.g).toMatchObject({ acceptPosts: false, posts: { commentLimit: 1000 } });
-        const ext = parseConfig(minimal({ externalFeeds: ['https://blog.example/feed.xml'], republish: false }), {}).groups.g;
-        expect(ext).toMatchObject({ acceptPosts: false, republish: false, externalFeeds: ['https://blog.example/feed.xml'] });
+        const ext = parseConfig(minimal({ externalFeeds: ['https://blog.example/feed.xml'] }), {}).groups.g;
+        expect(ext).toMatchObject({ acceptPosts: false, externalFeeds: ['https://blog.example/feed.xml'] });
         expect(() => parseConfig(minimal({ externalFeeds: [] }), {})).toThrow('externalFeeds');
         expect(() => parseConfig(minimal({ externalFeeds: ['ftp://x/feed'] }), {})).toThrow('externalFeeds[0]');
         expect(() => parseConfig(minimal({ externalFeeds: ['https://x/feed#a'] }), {})).toThrow('without fragment');
-        expect(() => parseConfig(minimal({ republish: 'no' }), {})).toThrow('republish');
     });
 
     it('strips @ from the group socialspec account', () => {
