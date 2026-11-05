@@ -4,13 +4,13 @@
 import { getConfig, GroupConfig } from '../lib/config';
 import { InvalidRequestError, NotFoundError } from '../lib/exceptions';
 import { checkSourceUrl } from '../lib/fetch';
-import { depthOf, newCommentGuid, newPostGuid, parentGuidOf } from '../lib/ids';
+import { depthOf, newCommentGuid, newPostGuid, parentGuidOf, postGuidOf } from '../lib/ids';
 import { LogContext } from '../lib/log';
-import { checkCommentAllowed, processSubmission, rulesFor } from '../lib/processor';
+import { checkCommentAllowed, checkExternalPost, processSubmission, rulesFor } from '../lib/processor';
 import { enqueue } from '../lib/queue';
 import { IncomingHttpRequest } from '../lib/server-common';
 import { getStatus, setStatus } from '../lib/status';
-import { findComment, findPublishedPost, findSource, postExists, readComments } from '../lib/storage';
+import { findComment, findPublishedPost, findSource, postExists, readComments, readPostMeta, withGroupLock, writePostMeta } from '../lib/storage';
 import { normalizeFeedRef, parseTarget, sourceKey, statusUrl, Target } from '../lib/urls';
 
 export const MAX_URL_PARAM_LENGTH = 2048;
@@ -50,13 +50,32 @@ async function newGuid(group: GroupConfig, target: Target): Promise<string> {
     throw new Error('Could not create a unique guid');
 }
 
-// Checks that the target exists and accepts a new post or comment.
+// Checks that the target exists and accepts a new post or comment. For posts in external feeds, the
+// feed is fetched to check that the post exists and allows comments; its metadata is created on the
+// first comment.
 async function checkTarget(group: GroupConfig, target: Target): Promise<void> {
-    if (target.kind == 'group') return;
-    if (target.kind == 'post' && !(await findPublishedPost(group.id, target.guid)))
+    if (target.kind == 'group') {
+        if (!group.acceptPosts)
+            throw new InvalidRequestError('This group does not accept new posts');
+        return;
+    }
+    const postGuid = postGuidOf(target.guid);
+    const meta = await readPostMeta(group.id, postGuid);
+    if (target.kind == 'post' && !target.external && !(await findPublishedPost(group.id, target.guid)))
         throw new InvalidRequestError('The target post does not exist');
     if (target.kind == 'comment' && !(await findComment(group.id, target.guid)))
         throw new InvalidRequestError('The target comment does not exist');
+    const external = target.kind == 'post' ? target.external : meta?.external;
+    if (external) {
+        const problem = await checkExternalPost(group, external);
+        if (problem)
+            throw new InvalidRequestError(problem.text);
+        if (!meta)
+            await withGroupLock(group.id, async () => {
+                if (!(await readPostMeta(group.id, postGuid)))
+                    await writePostMeta(group.id, { guid: postGuid, archive: 0, external, allowComments: true, counts: {}, total: 0 });
+            });
+    }
     const failure = await checkCommentAllowed(group, target.guid);
     if (failure)
         throw new InvalidRequestError(failure.text);
@@ -83,7 +102,7 @@ export async function mentionHandler(log: LogContext, event: IncomingHttpRequest
     const existing = await findSource(group.id, sourceKey(source));
     if (existing) {
         const rules = rulesFor(group, existing);
-        if (!rules.allowEdit && !rules.allowDelete)
+        if (!group.republish || (!rules.allowEdit && !rules.allowDelete))
             throw new InvalidRequestError('This source has already been submitted');
         const published = parentGuidOf(existing) ? await findComment(group.id, existing) : await findPublishedPost(group.id, existing);
         if (published && normalizeFeedRef(published._rssmention.target) != normalizeFeedRef(target))

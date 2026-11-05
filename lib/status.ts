@@ -4,7 +4,7 @@ import { time } from './server-common';
 
 export type SubmissionStatus =
     | { status: 'waiting' }
-    | { status: 'success', pubDate: string, pubUrl: string }
+    | { status: 'success', pubDate: string, pubUrl?: string }
     | { status: 'deleted' }
     | { status: 'failure', code: string, text: string };
 

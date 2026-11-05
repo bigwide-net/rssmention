@@ -17,7 +17,8 @@ export function testConfig(groupOverrides: any = {}): { config: Config, cleanup:
         ...groupOverrides,
         submissionRules: {
             general: { minLength: 0, maxLength: 4000, requireSocialSpec: true, title: 'allowed', ...groupOverrides.submissionRules?.general },
-            posts: { title: 'required', maxLength: 8000, allowHeadlines: true, commentLimit: 1000, ...groupOverrides.submissionRules?.posts },
+            posts: groupOverrides.submissionRules?.posts === false ? false
+                : { title: 'required', maxLength: 8000, allowHeadlines: true, commentLimit: 1000, ...groupOverrides.submissionRules?.posts },
             comments: { title: 'none', commentLimit: 20, ...groupOverrides.submissionRules?.comments },
             ...(groupOverrides.submissionRules?.moderationLLM ? { moderationLLM: groupOverrides.submissionRules.moderationLLM } : {}),
         },

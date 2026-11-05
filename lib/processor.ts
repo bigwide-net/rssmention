@@ -112,6 +112,31 @@ export function buildItem(group: GroupConfig, sub: Submission, src: SourceItem, 
     return { item };
 }
 
+// Checks that a post of an external feed exists and allows comments. The external feeds are tried in
+// order until one can be read.
+export async function checkExternalPost(group: GroupConfig, externalGuid: string): Promise<Failure | undefined> {
+    let lastProblem = 'The feed could not be read';
+    for (const feedUrl of group.externalFeeds ?? []) {
+        let feed;
+        try {
+            const res = await processorDeps.fetchFeed(feedUrl);
+            if (res.status < 200 || res.status >= 300) {
+                lastProblem = `The feed ${feedUrl} returned HTTP ${res.status}`;
+                continue;
+            }
+            feed = parseFeed(res.body);
+        } catch (err: any) {
+            lastProblem = `The feed ${feedUrl} could not be read: ${err.message}`;
+            continue;
+        }
+        const item = feed.items.find(i => i.guid == externalGuid);
+        if (!item) return { code: 'target-gone', text: 'The target post does not exist in its feed' };
+        if (item.allowComments === false) return { code: 'comments-disabled', text: 'Comments are disabled for this post' };
+        return undefined;
+    }
+    return { code: 'target-unavailable', text: lastProblem };
+}
+
 // Checks whether a new comment may still be added (the post or comment may have changed since acceptance).
 export async function checkCommentAllowed(group: GroupConfig, parentGuid: string): Promise<Failure | undefined> {
     const meta = await readPostMeta(group.id, postGuidOf(parentGuid));
@@ -225,6 +250,17 @@ export async function processSubmission(sub: Submission): Promise<void> {
 
     const moderation = await processorDeps.moderate(group, [item.title, src.markdown ?? item.content_html].filter(Boolean).join('\n\n'));
     if (!moderation.ok) return fail({ code: moderation.code, text: moderation.text }, item);
+
+    if (!group.republish) {
+        // Accepted, but only stored for the admin.
+        await withGroupLock(group.id, async () => {
+            await appendToLog(group.id, 'received', item);
+            await setSource(group.id, new URL(item._rssmention.source).href, item.id);
+        });
+        setStatus(group.id, sub.guid, { status: 'success', pubDate: item.date_published });
+        log.info('Received {0}', sub.guid);
+        return;
+    }
 
     const published = await withGroupLock(group.id, () => publishItem(group, item));
     if ('failure' in published) return fail(published.failure, item);

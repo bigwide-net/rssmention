@@ -10,6 +10,8 @@
             socialSpec: "twowavesandadot.blog", // for source:account @service='socialspec' in RSS
             tos: "https://twowavesandadot.blog/discussion/tos.html", // will be given to clients
             adminToken: "change-me-to-a-long-random-token",
+            // externalFeeds: ["https://twowavesandadot.blog/feed.xml"], // host comments for the posts of these feeds; no posts feed
+            // republish: false, // only store accepted submissions for the admin (log "received")
             submissionRules: {
                 general: { // common config for posts and comments. All optional.
                     minLength: 10, // min. chars of visible text (default 10)
@@ -28,7 +30,7 @@
                     allowEdit: false, // re-sending a webmention updates the item
                     allowDelete: false, // re-sending after the item/feed is gone (404/410) deletes it
                 },
-                posts: { // special rules for posts, overrides general
+                posts: { // special rules for posts, overrides general. posts: false accepts no new posts
                     title: 'required',
                     maxLength: 8000,
                     allowHeadlines: true,

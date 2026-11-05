@@ -9,7 +9,7 @@ import { log as rootLog, LogContext } from './lib/log';
 import { Config, getConfig, setConfig } from './lib/config';
 import { startStatusCleanup } from './lib/status';
 import { mentionHandler, statusHandler } from './handler/mention';
-import { archiveFeedHandler, commentsFeedHandler, postsFeedHandler } from './handler/feeds';
+import { archiveFeedHandler, commentsFeedHandler, postsFeedHandler, submissionsHandler } from './handler/feeds';
 import { approveItemHandler, deleteItemHandler, getItemHandler, listLogHandler, replaceItemHandler, setCommentingHandler } from './handler/admin';
 
 function convertHeaders(headers: QueryString.ParsedQs | Record<string, any>): Record<string, string> {
@@ -91,6 +91,10 @@ export function createApp(options: { happyServer?: boolean } = {}): express.Expr
     app.get('/groups/:group/comments/:post/comments.xml', wrapHandlerExpress(commentsFeedHandler('xml')));
     app.get('/groups/:group/comments/:post/:parent/comments.json', wrapHandlerExpress(commentsFeedHandler('json')));
     app.get('/groups/:group/comments/:post/:parent/comments.xml', wrapHandlerExpress(commentsFeedHandler('xml')));
+    app.get('/groups/:group/external/:guid/comments.json', wrapHandlerExpress(commentsFeedHandler('json', { external: true })));
+    app.get('/groups/:group/external/:guid/comments.xml', wrapHandlerExpress(commentsFeedHandler('xml', { external: true })));
+    app.get('/groups/:group/submissions.json', wrapHandlerExpress(submissionsHandler('json')));
+    app.get('/groups/:group/submissions.xml', wrapHandlerExpress(submissionsHandler('xml')));
     app.post('/groups/:group/mention', wrapHandlerExpress(mentionHandler));
     app.get('/groups/:group/status/:guid', wrapHandlerExpress(statusHandler));
 

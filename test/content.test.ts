@@ -63,8 +63,10 @@ describe('processContent()', () => {
             expect(ok({ markdown: '```js\nlet x = 1;\n```' })).toBe('<pre><code>let x = 1;\n</code></pre>');
         });
 
-        it('does not render strikethrough', () => {
-            expect(ok({ markdown: '~~gone~~' })).toBe('<p>~~gone~~</p>');
+        it('renders strikethrough as <s> when allowStyle is set', () => {
+            expect(ok({ markdown: '~~gone~~ here' })).toBe('<p><s>gone</s> here</p>');
+            expect(ok({ html: '<p><s>gone</s> here</p>' })).toBe('<p><s>gone</s> here</p>');
+            expect(failure({ markdown: '~~gone~~' }, { ...rules, allowStyle: false }).code).toBe('forbidden-element');
         });
 
         it('rejects javascript links', () => {

@@ -5,6 +5,7 @@
 //   comments/<post-guid>/post.json                  post metadata: archive number, comment counts, allowComments
 //   comments/<post-guid>/comments-published-<parent-guid>.json   direct replies to a post or comment
 //   comments/<post-guid>/comments-failed-<parent-guid>.json      failed replies (latest 50)
+//   group-received.json, archive/group-received-<n>.json  accepted submissions of groups with republish: false
 //   sources.json                                    source URL -> guid, to recognize re-sent webmentions
 //
 // Files are written atomically (temp file + rename). Writers serialize per group with withGroupLock.
@@ -17,7 +18,7 @@ export const FEED_FILE_SIZE = 50;
 export const JSON_FEED_VERSION = 'https://jsonfeed.org/version/1.1';
 export const SOURCE_ABOUT = 'https://github.com/bigwide-net/RFCs/blob/main/RFC-1-Source-for-JSON-Feeds.md';
 
-export type LogKind = 'submissions' | 'failed' | 'published';
+export type LogKind = 'submissions' | 'failed' | 'published' | 'received';
 
 export interface ItemInternal {
     kind: 'post' | 'comment';
@@ -53,8 +54,10 @@ export interface FeedFile {
 
 export interface PostMeta {
     guid: string;
-    // archive/group-published-<archive>.json contains the post
+    // archive/group-published-<archive>.json contains the post (0 for posts in external feeds)
     archive: number;
+    // the guid of the post in its external feed, for posts of externalFeeds
+    external?: string;
     allowComments: boolean;
     // guid (post or comment) -> number of direct replies
     counts: Record<string, number>;

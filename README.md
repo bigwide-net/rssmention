@@ -1,8 +1,10 @@
 # rssmention
 
-A [Webmention](https://www.w3.org/TR/webmention/) receiver for RSS and JSON Feed. It hosts
-Subreddit- and Facebook-Groups-like discussion groups. Each group is a feed. Users post and comment by
-publishing an item in their own feed (RSS or JSON Feed) and sending a webmention.
+A [Webmention](https://www.w3.org/TR/webmention/) receiver for RSS and JSON Feed. It hosts comments
+for blogs and other feeds, and Subreddit- and Facebook-Groups-like discussion groups. Users post and
+comment by publishing an item in their own feed (RSS or JSON Feed) and sending a webmention. The
+protocol is described in [RFC-4: Feed Submissions](https://github.com/bigwide-net/RFCs/blob/main/RFC-4-Feed-Submissions.md)
+and [RFC-5: Comment HTML](https://github.com/bigwide-net/RFCs/blob/main/RFC-5-Comment-HTML.md).
 
 ## Running
 
@@ -24,6 +26,24 @@ npm test
 | `LIMITS_*` | rate limits, see `lib/limits.middleware.ts` |
 | `HAPPY_SECRET` | secret for the `/happy` health endpoints |
 
+## Groups, blogs and inboxes
+
+Every entry in `groups` is one target. Three options in the config change what it does:
+
+- **Discussion group** (default): the group has its own posts feed. Anyone can post, and comment on posts.
+- **Comments for a blog** (`externalFeeds`): the posts live in a feed elsewhere, for example
+  `externalFeeds: ["https://alice.example/feed.xml", "https://alice.example/feed.json"]`. Comments target
+  `<feed URL>#<post guid>`. rssmention fetches the feed to check that the post exists and that it does
+  not have `allowComments: false` (`rm:commenting`, `_commenting`). The group has no posts feed. The blog
+  links the comments of each post in `source:comments` (JSON: `_source.comments.feedUrl`) as
+  `/groups/<group>/external/<post guid>/comments.(json|xml)`, and includes the `submissions` element from
+  `/groups/<group>/submissions.(json|xml)` in its feed.
+- **Comments only** (`submissionRules: { posts: false }`): a group whose posts are created by the admin
+  only. The post rules still limit the comments per post (`posts.commentLimit`).
+
+`republish: false` on a group accepts submissions without publishing them. They are stored in the admin
+log `received`, like messages to the owner. Resubmitting the same source is rejected.
+
 ## Endpoints
 
 All paths are below `/groups/<group>`. `.json` serves JSON Feed and `.xml` serves RSS 2.0. Both have the same content.
@@ -34,6 +54,8 @@ All paths are below `/groups/<group>`. `.json` serves JSON Feed and `.xml` serve
 | `GET /archive/posts-<n>.(json\|xml)` | archives (RFC 5005: `prev-archive`, JSON Feed: `next_url`) |
 | `GET /comments/<post>/comments.(json\|xml)` | direct replies to a post |
 | `GET /comments/<post>/<comment>/comments.(json\|xml)` | direct replies to a comment |
+| `GET /external/<guid>/comments.(json\|xml)` | direct replies to post `<guid>` of an external feed (empty before the first comment) |
+| `GET /submissions.(json\|xml)` | the `submissions` element, for external feeds to include |
 | `POST /mention` | webmention endpoint (`source`, `target`; form-encoded or JSON) |
 | `GET /status/<guid>` | submission status: `waiting`, `success`, `deleted` or `failure` (in memory, kept ≥ 1 hour) |
 
@@ -41,7 +63,7 @@ Admin endpoints need the header `Authorization: Bearer <adminToken>`:
 
 | Method & path | |
 |---|---|
-| `GET /admin/(submissions\|failed\|published)[?archive=n]` | group logs with internal data |
+| `GET /admin/(submissions\|failed\|published\|received)[?archive=n]` | group logs with internal data (`received`: with `republish: false`) |
 | `GET /admin/items/<guid>` | a published post or comment, its post metadata, and failed replies |
 | `PUT /admin/items/<guid>` `{title?, text}` | replaces a post or comment; the author becomes "Admin" |
 | `DELETE /admin/items/<guid>` | deletes a post or comment and all replies to it |
@@ -54,7 +76,8 @@ Admin endpoints need the header `Authorization: Bearer <adminToken>`:
   left out if the feed has only one item.
 - **Target**:
   - a new post: the group feed (`…/posts.xml` or `…/posts.json`)
-  - a comment on a post: the feed containing the post plus `#post-guid`
+  - a comment on a post: the feed containing the post plus `#post-guid`. For `externalFeeds`, that is
+    the external feed: `https://alice.example/feed.xml#post-42`
   - a reply to a comment: the comments feed containing the comment plus `#comment-guid`
 - The item must have `source:inReplyTo` (RSS) or `_source.inReplyTo` (JSON) equal to the target. The `.xml`
   and `.json` URLs count as the same.
@@ -178,7 +201,7 @@ rules:
 
 | Rule | Elements |
 |---|---|
-| `allowStyle` | `strong`, `em` |
+| `allowStyle` | `strong`, `em`, `s` |
 | `allowLinks` | `a` (requires `href`) |
 | `allowCode` | `code`, `pre` |
 | `allowQuote` | `q`, `blockquote` |
@@ -366,10 +389,12 @@ $RSSMENTION_VAR/groups/<group>/
   comments/<post>/post.json                                           archive no., reply counts, allowComments
   comments/<post>/comments-published-<parent>.json                    direct replies to <parent>
   comments/<post>/comments-failed-<parent>.json                       latest 50 failed replies
+  group-received.json, archive/group-received-<n>.json                accepted submissions with republish: false
   sources.json                                                        source URL → guid (edits/deletes)
 ```
 
-Post guids are 10 base62 characters. A comment guid is `<parent-guid>-<5 base36 characters>`.
+Post guids are 10 base62 characters. For posts of external feeds, the post guid is derived from the
+group id and the post's own guid (SHA-256), and `post.json` stores the original guid in `external`. A comment guid is `<parent-guid>-<5 base36 characters>`.
 
 ## License
 

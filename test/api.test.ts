@@ -593,4 +593,89 @@ describe('rssmention API', () => {
             expect(res.body.message).toBe('Only submissions that failed moderation can be approved');
         });
     });
+
+    describe('comments on external feeds', () => {
+        const BLOG_XML = 'https://blog.example/feed.xml';
+        const BLOG_JSON = 'https://blog.example/feed.json';
+        const blogFeed = (items: any[]) => JSON.stringify({ version: 'https://jsonfeed.org/version/1.1', title: 'Blog', items });
+
+        beforeEach(() => {
+            setup({ externalFeeds: [BLOG_XML, BLOG_JSON] });
+            sources[BLOG_XML] = { status: 200, body: rssFeed([{ guid: 'post-42', title: 'Blog post', html: '<p>Hello</p>' }]) };
+        });
+
+        it('accepts comments on posts of the external feed and serves them by the post guid', async () => {
+            const target = `${BLOG_XML}#post-42`;
+            const guid = await publishComment('c1', target);
+            const feedJson = await feed('/groups/twowaves/external/post-42/comments.json');
+            expect(feedJson.items.map((i: any) => i.id)).toEqual([guid]);
+            expect(feedJson.items[0]._source.inReplyTo).toBe(`${BLOG_JSON}#post-42`);
+            expect(feedJson._submissions.policies.posts).toBeUndefined();
+
+            const postGuid = guid.split('-')[0];
+            expect((await feed(`/groups/twowaves/comments/${postGuid}/comments.json`)).items).toHaveLength(1);
+            const meta = await readPostMeta('twowaves', postGuid);
+            expect(meta).toMatchObject({ external: 'post-42', archive: 0, total: 1 });
+
+            const reply = await publishComment('c2', `${G}/comments/${postGuid}/comments.json#${guid}`);
+            expect(reply.startsWith(guid + '-')).toBe(true);
+            const xml = (await request(app).get('/groups/twowaves/external/post-42/comments.xml')).text;
+            expect(xml).toContain(`<source:inReplyTo>${BLOG_XML}#post-42</source:inReplyTo>`);
+        });
+
+        it('serves an empty comments feed before the first comment', async () => {
+            const res = await request(app).get('/groups/twowaves/external/post-42/comments.json');
+            expect(res.status).toBe(200);
+            expect(res.body.items).toEqual([]);
+        });
+
+        it('rejects unknown posts, closed posts, unreadable feeds and posts to the group', async () => {
+            expect((await mention(`${BOB}#c1`, `${BLOG_XML}#nope`)).body.message).toContain('does not exist');
+            expect((await mention(`${BOB}#c1`, BLOG_XML)).status).toBe(400);
+            expect((await mention(ALICE, `${G}/posts.xml`)).body.message).toContain('no posts feed');
+            expect((await request(app).get('/groups/twowaves/posts.json')).status).toBe(404);
+
+            sources[BLOG_XML] = { status: 200, body: blogFeed([{ id: 'post-42', content_html: '<p>x</p>', _commenting: { allowComments: false } }]) };
+            expect((await mention(`${BOB}#c1`, `${BLOG_XML}#post-42`)).body.message).toBe('Comments are disabled for this post');
+
+            sources[BLOG_XML] = { status: 500, body: '' };
+            sources[BLOG_JSON] = { status: 200, body: blogFeed([{ id: 'post-42', content_html: '<p>x</p>' }]) };
+            await publishComment('c1', `${BLOG_JSON}#post-42`);
+            delete sources[BLOG_JSON];
+            expect((await mention(`${BOB}#c3`, `${BLOG_XML}#post-42`)).body.message).toContain('returned HTTP');
+        });
+
+        it('serves the submissions element for the external feed', async () => {
+            const json = await feed('/groups/twowaves/submissions.json');
+            expect(json._submissions).toMatchObject({ url: `${G}/mention`, republish: true });
+            expect(json._submissions.policies.posts).toBeUndefined();
+            const xml = (await request(app).get('/groups/twowaves/submissions.xml')).text;
+            expect(xml).toContain('<rm:submissions xmlns:rm="https://rssmention.bigwide.net/">');
+            expect(xml).not.toContain('type="posts"');
+        });
+    });
+
+    describe('groups without posts', () => {
+        it('rejects new posts and does not announce post rules', async () => {
+            setup({ submissionRules: { posts: false } });
+            sources[ALICE] = { status: 200, body: rssFeed([alicePost()]) };
+            expect((await mention(ALICE, `${G}/posts.xml`)).body.message).toBe('This group does not accept new posts');
+            const posts = await feed('/groups/twowaves/posts.json');
+            expect(posts._submissions.policies).toEqual({ comments: expect.any(Object) });
+        });
+    });
+
+    describe('republish: false', () => {
+        it('stores accepted submissions for the admin only', async () => {
+            setup({ republish: false });
+            sources[ALICE] = { status: 200, body: rssFeed([alicePost()]) };
+            const { guid, status } = await submit(ALICE, `${G}/posts.xml`);
+            expect(status).toEqual({ status: 'success', pubDate: expect.any(String) });
+            expect((await feed('/groups/twowaves/posts.json')).items).toEqual([]);
+            expect((await feed('/groups/twowaves/posts.json'))._submissions.republish).toBe(false);
+            const received = await request(app).get('/groups/twowaves/admin/received').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
+            expect(received.body.items.map((i: any) => i.id)).toEqual([guid]);
+            expect((await mention(ALICE, `${G}/posts.xml`)).body.message).toBe('This source has already been submitted');
+        });
+    });
 });

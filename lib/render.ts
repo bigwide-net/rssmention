@@ -38,8 +38,8 @@ export function submissionsJson(config: Config, group: GroupConfig) {
         about: RSSMENTION_NS,
         url: mentionUrl(config, group.id),
         ...(group.tos ? { tos: group.tos } : {}),
-        policies: { posts: policies(group.posts), comments: policies(group.comments) },
-        republish: true,
+        policies: { ...(group.acceptPosts ? { posts: policies(group.posts) } : {}), comments: policies(group.comments) },
+        republish: group.republish,
     };
 }
 
@@ -108,10 +108,16 @@ function rssSubmissions(config: Config, group: GroupConfig): string {
     return ['<rm:submissions>',
         '  ' + el('rm:url', mentionUrl(config, group.id)),
         group.tos ? '  ' + el('rm:tos', group.tos) : '',
-        '  ' + policy('posts', group.posts),
+        group.acceptPosts ? '  ' + policy('posts', group.posts) : '',
         '  ' + policy('comments', group.comments),
-        '  ' + el('rm:republish', 'true'),
+        '  ' + el('rm:republish', String(group.republish)),
         '</rm:submissions>'].filter(Boolean).join('\n');
+}
+
+// The submissions element alone, for owners of external feeds to copy into their feed.
+export function renderSubmissionsXml(config: Config, group: GroupConfig): string {
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        rssSubmissions(config, group).replace('<rm:submissions>', `<rm:submissions xmlns:rm="${RSSMENTION_NS}">`) + '\n';
 }
 
 export function renderRss(config: Config, feed: FeedView): string {

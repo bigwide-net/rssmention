@@ -37,8 +37,16 @@ export interface GroupConfig {
     socialSpec?: string;
     tos?: string;
     adminToken: string;
+    // false if the group feed accepts no new posts (submissionRules.posts: false, or externalFeeds is set).
+    // The post rules still apply to comments: posts.commentLimit limits the comments per post.
+    acceptPosts: boolean;
     posts: SubmissionRules;
     comments: CommentRules;
+    // Feeds hosted elsewhere (e.g. a blog's RSS and JSON feed) whose posts accept comments here. Their
+    // targets are <feed URL>#<guid>. Groups with external feeds have no posts feed of their own.
+    externalFeeds?: string[];
+    // false: accepted submissions are only stored for the admin (log "received"), not published.
+    republish: boolean;
     moderationLLM?: string;
     moderationPrompt: string;
 }
@@ -109,6 +117,22 @@ function requireString(where: string, value: any, optional = false): string | un
     return value;
 }
 
+function parseExternalFeeds(where: string, value: any): string[] | undefined {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value) || !value.length) throw new ConfigError(`${where} must be a non-empty array of feed URLs`);
+    return value.map((v, i) => {
+        let url: URL;
+        try {
+            url = new URL(v);
+        } catch {
+            throw new ConfigError(`${where}[${i}] must be an absolute URL`);
+        }
+        if ((url.protocol != 'http:' && url.protocol != 'https:') || url.hash)
+            throw new ConfigError(`${where}[${i}] must be a http(s) URL without fragment`);
+        return url.href;
+    });
+}
+
 function parseGroup(id: string, raw: any): GroupConfig {
     const where = `groups.${id}`;
     if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(id))
@@ -118,11 +142,15 @@ function parseGroup(id: string, raw: any): GroupConfig {
     if (adminToken.length < 12) throw new ConfigError(`${where}.adminToken must have at least 12 characters`);
     const rules = raw.submissionRules ?? {};
     const general = checkRules(`${where}.submissionRules.general`, rules.general);
-    const posts = checkRules(`${where}.submissionRules.posts`, rules.posts);
+    const postsDisabled = rules.posts === false;
+    const posts = checkRules(`${where}.submissionRules.posts`, postsDisabled ? undefined : rules.posts);
     const comments = checkRules(`${where}.submissionRules.comments`, rules.comments);
     if ('maxDepth' in general || 'maxDepth' in posts)
         throw new ConfigError(`${where}: maxDepth is only allowed in submissionRules.comments`);
     const socialSpec = requireString(`${where}.socialSpec`, raw.socialSpec, true);
+    const externalFeeds = parseExternalFeeds(`${where}.externalFeeds`, raw.externalFeeds);
+    if (raw.republish !== undefined && typeof raw.republish != 'boolean')
+        throw new ConfigError(`${where}.republish must be a boolean`);
     const postRules: SubmissionRules = { ...GENERAL_DEFAULTS, ...POST_DEFAULTS, ...general, ...posts };
     const commentRules = { ...GENERAL_DEFAULTS, ...COMMENT_DEFAULTS, ...general, ...comments } as CommentRules;
     for (const [type, r] of [['posts', postRules], ['comments', commentRules]] as const)
@@ -135,8 +163,11 @@ function parseGroup(id: string, raw: any): GroupConfig {
         socialSpec: socialSpec?.replace(/^@/, ''),
         tos: requireString(`${where}.tos`, raw.tos, true),
         adminToken,
+        acceptPosts: !postsDisabled && !externalFeeds,
         posts: postRules,
         comments: commentRules,
+        ...(externalFeeds ? { externalFeeds } : {}),
+        republish: raw.republish ?? true,
         moderationLLM: requireString(`${where}.submissionRules.moderationLLM`, rules.moderationLLM, true),
         moderationPrompt: requireString(`${where}.submissionRules.moderationPrompt`, rules.moderationPrompt, true) ?? DEFAULT_MODERATION_PROMPT,
     };

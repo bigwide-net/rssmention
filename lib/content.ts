@@ -35,13 +35,13 @@ export const MAX_LINK_TEXT_LENGTH = 120;
 export const MAX_TITLE_LENGTH = 200;
 const MAX_CONSECUTIVE_BR = 2;
 
-const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false }).disable(['strikethrough']);
+const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false });
 const linkify = new LinkifyIt().set({ fuzzyLink: false, fuzzyEmail: false, fuzzyIP: false });
 
 // Element -> the rule that allows it. Elements without entry are always forbidden.
 const ELEMENT_RULES: Record<string, keyof SubmissionRules | 'always'> = {
     p: 'always', br: 'always',
-    strong: 'allowStyle', em: 'allowStyle',
+    strong: 'allowStyle', em: 'allowStyle', s: 'allowStyle',
     a: 'allowLinks',
     code: 'allowCode', pre: 'allowCode',
     q: 'allowQuote', blockquote: 'allowQuote',
@@ -223,7 +223,7 @@ function collapseBreaks(tokens: Token[]): Token[] {
     return out;
 }
 
-const INLINE_ELEMENTS = new Set(['strong', 'em', 'a', 'code', 'q']);
+const INLINE_ELEMENTS = new Set(['strong', 'em', 's', 'a', 'code', 'q']);
 
 // Length of the visible text, with whitespace runs collapsed to one space. Block elements and <br>
 // separate words; inline elements don't.
