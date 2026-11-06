@@ -4,7 +4,7 @@ A [Webmention](https://www.w3.org/TR/webmention/) receiver for RSS and JSON Feed
 for blogs and other feeds, and Subreddit- and Facebook-Groups-like discussion groups. Users post and
 comment by publishing an item in their own feed (RSS or JSON Feed) and sending a webmention. The
 protocol is described in [RFC-4: Feed Submissions](https://github.com/bigwide-net/RFCs/blob/main/RFC-4-Feed-Submissions.md)
-and [RFC-5: Comment HTML](https://github.com/bigwide-net/RFCs/blob/main/RFC-5-Comment-HTML.md).
+and [RFC-5: Comment HTML and Markdown](https://github.com/bigwide-net/RFCs/blob/main/RFC-5-Comment-HTML.md).
 
 ## Running
 
