@@ -1,6 +1,7 @@
 // Moderation through an LLM on OpenRouter (OpenAI-compatible chat completions). The model must
 // answer "ok" to accept; anything else is the rejection reason.
-import { GroupConfig } from './config';
+import { SpaceConfig } from './config';
+import { cleanLine, MAX_FAILURE_TEXT_LENGTH } from './sanitize';
 
 export const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 export const MODERATION_TIMEOUT_MS = 60_000;
@@ -13,7 +14,7 @@ export const moderationDeps = {
     fetch: (url: string, init: RequestInit) => fetch(url, init),
 };
 
-export function buildModerationPrompt(group: GroupConfig, comment: string): string {
+export function buildModerationPrompt(group: SpaceConfig, comment: string): string {
     // Replace {comment} last, so text in the comment is never treated as a placeholder.
     return group.moderationPrompt.replace(/\{topic\}/g, () => group.topic).replace(/\{comment\}/g, () => comment);
 }
@@ -41,7 +42,7 @@ async function ask(model: string, apiKey: string, prompt: string): Promise<strin
 /**
  * Moderates a submission. Without a configured model moderation is skipped. Errors are retried once.
  */
-export async function moderate(group: GroupConfig, comment: string): Promise<ModerationResult> {
+export async function moderate(group: SpaceConfig, comment: string): Promise<ModerationResult> {
     if (!group.moderationLLM) return { ok: true };
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey)
@@ -51,7 +52,7 @@ export async function moderate(group: GroupConfig, comment: string): Promise<Mod
     for (let attempt = 0; attempt < 2; attempt++) {
         try {
             const answer = await ask(group.moderationLLM, apiKey, prompt);
-            return isOkAnswer(answer) ? { ok: true } : { ok: false, code: 'moderation-rejected', text: answer.trim().substring(0, 1000) };
+            return isOkAnswer(answer) ? { ok: true } : { ok: false, code: 'moderation-rejected', text: cleanLine(answer, MAX_FAILURE_TEXT_LENGTH) || 'Rejected' };
         } catch (err) {
             lastError = err;
         }

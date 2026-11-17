@@ -2,10 +2,12 @@
 // are extracted: the source namespace (RSS) and Downread RFC-1 `_source` (JSON) supply Markdown,
 // accounts and inReplyTo.
 import { XMLParser } from 'fast-xml-parser';
+import { cleanLine, cleanText, MAX_FEED_FIELD_LENGTH, MAX_NAME_LENGTH } from './sanitize';
 
 export const SOURCE_NS_URIS = ['http://source.scripting.com/', 'https://source.scripting.com/'];
 export const CONTENT_NS = 'http://purl.org/rss/1.0/modules/content/';
 export const DC_NS = 'http://purl.org/dc/elements/1.1/';
+export const ATOM_NS = 'http://www.w3.org/2005/Atom';
 export const RM_NS_URIS = ['https://rssmention.bigwide.net/', 'http://rssmention.bigwide.net/'];
 
 export interface SourceItem {
@@ -26,9 +28,18 @@ export interface SourceFeed {
     format: 'rss' | 'json';
     title?: string;
     items: SourceItem[];
+    // the next (older) page of a paged feed: JSON next_url, RSS <atom:link rel="next">
+    next?: string;
 }
 
 export class FeedParseError extends Error {}
+
+// Every string taken from a feed is sanitized here, before anything else sees it: single-line fields
+// lose control and invisible characters and are capped, content keeps its line breaks.
+const line = (s: string | undefined, max = MAX_FEED_FIELD_LENGTH) => s === undefined ? undefined : cleanLine(s, max) || undefined;
+const multi = (s: string | undefined) => s === undefined ? undefined : cleanText(s).trim() || undefined;
+// Item guids are identifiers: items with absurdly long guids are skipped rather than truncated.
+const itemGuid = (s: string | undefined) => s === undefined || s.length > MAX_FEED_FIELD_LENGTH ? undefined : line(s);
 
 function text(value: any): string | undefined {
     if (Array.isArray(value)) value = value[0];
@@ -102,29 +113,32 @@ function parseRss(xml: string): SourceFeed {
     const socialSpecOf = (el: any) => asArray(get(el, SOURCE_NS_URIS, 'account'))
         .find(a => typeof a == 'object' && String(a['@_service'] ?? '').toLowerCase() == 'socialspec');
 
-    const channelAccount = text(socialSpecOf(channel));
-    const channelAuthor = text(get(channel, [DC_NS], 'creator')) ?? text(channel.managingEditor);
+    const channelAccount = line(text(socialSpecOf(channel)));
+    const channelAuthor = line(text(get(channel, [DC_NS], 'creator')) ?? text(channel.managingEditor), MAX_NAME_LENGTH);
     const items: SourceItem[] = [];
     for (const item of asArray(channel.item)) {
         if (!item || typeof item != 'object') continue;
-        const guid = text(item.guid) ?? text(item.link);
+        const guid = itemGuid(text(item.guid) ?? text(item.link));
         if (!guid) continue;
         const commenting = get(item, RM_NS_URIS, 'commenting');
         const allowComments = commenting && typeof commenting == 'object' ? text(get(commenting, RM_NS_URIS, 'allowComments')) : undefined;
         items.push({
             guid,
-            title: text(item.title),
-            html: text(get(item, [CONTENT_NS], 'encoded')) ?? text(item.description),
-            markdown: text(get(item, SOURCE_NS_URIS, 'markdown')),
-            authorName: text(get(item, [DC_NS], 'creator')) ?? text(item.author) ?? channelAuthor,
-            socialSpec: text(socialSpecOf(item)) ?? channelAccount,
-            inReplyTo: text(get(item, SOURCE_NS_URIS, 'inReplyTo')),
+            title: line(text(item.title)),
+            html: multi(text(get(item, [CONTENT_NS], 'encoded')) ?? text(item.description)),
+            markdown: multi(text(get(item, SOURCE_NS_URIS, 'markdown'))),
+            authorName: line(text(get(item, [DC_NS], 'creator')) ?? text(item.author), MAX_NAME_LENGTH) ?? channelAuthor,
+            socialSpec: line(text(socialSpecOf(item))) ?? channelAccount,
+            inReplyTo: line(text(get(item, SOURCE_NS_URIS, 'inReplyTo'))),
             pubDate: parseDate(text(item.pubDate)),
-            url: text(item.link),
+            url: line(text(item.link)),
             allowComments: allowComments === undefined ? undefined : allowComments.toLowerCase() != 'false',
         });
     }
-    return { format: 'rss', title: text(channel.title), items };
+    const next = asArray(get(channel, [ATOM_NS], 'link'))
+        .find(l => l && typeof l == 'object' && String(l['@_rel'] ?? '').toLowerCase() == 'next' && typeof l['@_href'] == 'string');
+    const nextUrl = line(next?.['@_href']);
+    return { format: 'rss', title: line(text(channel.title)), items, ...(nextUrl ? { next: nextUrl } : {}) };
 }
 
 // RFC-1 accounts: the map form ({"socialspec": "@x"}), the list form ([{service, name}]) and the
@@ -158,31 +172,32 @@ function parseJson(body: string): SourceFeed {
         throw new FeedParseError('Not a JSON Feed (missing version)');
     if (!Array.isArray(feed.items))
         throw new FeedParseError('JSON Feed has no items array');
-    const feedAccount = jsonSocialSpec(feed._source);
-    const feedAuthor = jsonString(feed.authors?.[0]?.name) ?? jsonString(feed.author?.name);
+    const feedAccount = line(jsonSocialSpec(feed._source));
+    const feedAuthor = line(jsonString(feed.authors?.[0]?.name) ?? jsonString(feed.author?.name), MAX_NAME_LENGTH);
     const items: SourceItem[] = [];
     for (const item of feed.items) {
         if (!item || typeof item != 'object') continue;
-        const guid = jsonString(item.id);
+        const guid = itemGuid(jsonString(item.id));
         if (!guid) continue;
         const source = item._source && typeof item._source == 'object' ? item._source : {};
         const inReplyTo = typeof source.inReplyTo == 'string' ? source.inReplyTo : jsonString(source.inReplyTo?.value);
         const allowComments = item._commenting?.allowComments;
         items.push({
             guid,
-            title: jsonString(item.title),
-            html: jsonString(item.content_html),
-            text: jsonString(item.content_text),
-            markdown: jsonString(source.markdown),
-            authorName: jsonString(item.authors?.[0]?.name) ?? jsonString(item.author?.name) ?? feedAuthor,
-            socialSpec: jsonSocialSpec(source) ?? feedAccount,
-            inReplyTo: inReplyTo?.trim() || undefined,
+            title: line(jsonString(item.title)),
+            html: multi(jsonString(item.content_html)),
+            text: multi(jsonString(item.content_text)),
+            markdown: multi(jsonString(source.markdown)),
+            authorName: line(jsonString(item.authors?.[0]?.name) ?? jsonString(item.author?.name), MAX_NAME_LENGTH) ?? feedAuthor,
+            socialSpec: line(jsonSocialSpec(source)) ?? feedAccount,
+            inReplyTo: line(inReplyTo),
             pubDate: parseDate(jsonString(item.date_published)),
-            url: jsonString(item.url),
+            url: line(jsonString(item.url)),
             allowComments: typeof allowComments == 'boolean' ? allowComments : undefined,
         });
     }
-    return { format: 'json', title: jsonString(feed.title), items };
+    const next = typeof feed.next_url == 'string' ? line(feed.next_url) : undefined;
+    return { format: 'json', title: line(jsonString(feed.title)), items, ...(next ? { next } : {}) };
 }
 
 export function parseFeed(body: string): SourceFeed {

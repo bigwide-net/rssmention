@@ -1,7 +1,9 @@
 // Renders group and comment feeds as JSON Feed and RSS 2.0. Every feed carries the full submission
 // configuration (rm:submissions / _submissions), so clients can post without other knowledge.
-import { CommentRules, Config, GroupConfig, RSSMENTION_NS, SubmissionRules } from './config';
+// Mentions are marked with _mention / rm:mention, which says how they are republished (always "link").
+import { CommentRules, Config, RSSMENTION_NS, SpaceConfig, SubmissionRules } from './config';
 import { SOURCE_ABOUT, StoredItem } from './storage';
+import { stripXmlInvalid } from './sanitize';
 import { FeedFormat, mentionUrl } from './urls';
 
 export const SOURCE_NS = 'http://source.scripting.com/';
@@ -11,10 +13,11 @@ export interface ItemView {
     inReplyTo?: (format: FeedFormat) => string;
     comments?: { feedUrl: (format: FeedFormat) => string, count: number, total?: number };
     allowComments?: boolean; // posts only
+    mention?: boolean; // the item is a mention, republished as a link
 }
 
 export interface FeedView {
-    group: GroupConfig;
+    space: SpaceConfig;
     title: string;
     description: string;
     url: (format: FeedFormat) => string;
@@ -33,12 +36,24 @@ export function policies(rules: SubmissionRules | CommentRules): Record<string, 
     return result;
 }
 
-export function submissionsJson(config: Config, group: GroupConfig) {
+// How mentions are republished: only as a link (with title). RFC-4 would also allow "summary".
+export const MENTION_REPUBLISH = 'link';
+
+// The comments policy, for feeds with threadLimit (the maximum number of comments per post).
+function commentPolicy(space: SpaceConfig) {
+    return { ...policies(space.comments), ...(space.type == 'feed' ? { threadLimit: space.posts.commentLimit } : {}) };
+}
+
+export function submissionsJson(config: Config, space: SpaceConfig) {
     return {
         about: RSSMENTION_NS,
-        url: mentionUrl(config, group.id),
-        ...(group.tos ? { tos: group.tos } : {}),
-        policies: { ...(group.acceptPosts ? { posts: policies(group.posts) } : {}), comments: policies(group.comments) },
+        url: mentionUrl(config, space),
+        ...(space.tos ? { tos: space.tos } : {}),
+        policies: {
+            ...(space.acceptPosts ? { posts: policies(space.posts) } : {}),
+            ...(space.acceptComments ? { comments: commentPolicy(space) } : {}),
+            ...(space.acceptMentions ? { mentions: { republish: MENTION_REPUBLISH } } : {}),
+        },
         // rssmention always republishes in full; RFC-4 also defines 'summary' and 'no'.
         republish: 'full',
     };
@@ -58,6 +73,7 @@ function jsonItem(view: ItemView) {
         ...item,
         _source: source,
         ...(view.allowComments !== undefined ? { _commenting: { about: RSSMENTION_NS, allowComments: view.allowComments } } : {}),
+        ...(view.mention ? { _mention: { about: RSSMENTION_NS, republish: MENTION_REPUBLISH } } : {}),
     };
 }
 
@@ -69,8 +85,8 @@ export function renderJson(config: Config, feed: FeedView): string {
         home_page_url: feed.url('json'),
         feed_url: feed.url('json'),
         ...(feed.prevArchiveUrl ? { next_url: feed.prevArchiveUrl('json') } : {}),
-        _submissions: submissionsJson(config, feed.group),
-        ...(feed.group.socialSpec ? { _source: { about: SOURCE_ABOUT, accounts: { socialspec: '@' + feed.group.socialSpec } } } : {}),
+        _submissions: submissionsJson(config, feed.space),
+        ...(feed.space.socialSpec ? { _source: { about: SOURCE_ABOUT, accounts: { socialspec: '@' + feed.space.socialSpec } } } : {}),
         items: feed.items.map(jsonItem),
     }, null, 1);
 }
@@ -78,7 +94,7 @@ export function renderJson(config: Config, feed: FeedView): string {
 // ---- RSS ----
 
 export function escapeXml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return stripXmlInvalid(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function el(name: string, content: string | undefined, attrs: Record<string, string | number | boolean> = {}): string {
@@ -100,25 +116,27 @@ function rssItem(view: ItemView): string {
         view.inReplyTo ? el('source:inReplyTo', view.inReplyTo('xml')) : '',
         view.comments ? el('source:comments', undefined, { count: view.comments.count, feedUrl: view.comments.feedUrl('xml') }) : '',
         view.allowComments !== undefined ? `<rm:commenting>${el('rm:allowComments', String(view.allowComments))}</rm:commenting>` : '',
+        view.mention ? el('rm:mention', undefined, { republish: MENTION_REPUBLISH }) : '',
     ];
     return `<item>\n${lines.filter(Boolean).map(l => '  ' + l).join('\n')}\n</item>`;
 }
 
-function rssSubmissions(config: Config, group: GroupConfig): string {
-    const policy = (type: string, rules: SubmissionRules) => el('rm:policies', undefined, { type, ...policies(rules) });
+function rssSubmissions(config: Config, space: SpaceConfig): string {
+    const policy = (type: string, rules: Record<string, string | number | boolean>) => el('rm:policies', undefined, { type, ...rules });
     return ['<rm:submissions>',
-        '  ' + el('rm:url', mentionUrl(config, group.id)),
-        group.tos ? '  ' + el('rm:tos', group.tos) : '',
-        group.acceptPosts ? '  ' + policy('posts', group.posts) : '',
-        '  ' + policy('comments', group.comments),
+        '  ' + el('rm:url', mentionUrl(config, space)),
+        space.tos ? '  ' + el('rm:tos', space.tos) : '',
+        space.acceptPosts ? '  ' + policy('posts', policies(space.posts)) : '',
+        space.acceptComments ? '  ' + policy('comments', commentPolicy(space)) : '',
+        space.acceptMentions ? '  ' + policy('mentions', { republish: MENTION_REPUBLISH }) : '',
         '  ' + el('rm:republish', 'full'),
         '</rm:submissions>'].filter(Boolean).join('\n');
 }
 
-// The submissions element alone, for owners of external feeds to copy into their feed.
-export function renderSubmissionsXml(config: Config, group: GroupConfig): string {
+// The submissions element alone, for owners of feeds to copy into their feed.
+export function renderSubmissionsXml(config: Config, space: SpaceConfig): string {
     return '<?xml version="1.0" encoding="UTF-8"?>\n' +
-        rssSubmissions(config, group).replace('<rm:submissions>', `<rm:submissions xmlns:rm="${RSSMENTION_NS}">`) + '\n';
+        rssSubmissions(config, space).replace('<rm:submissions>', `<rm:submissions xmlns:rm="${RSSMENTION_NS}">`) + '\n';
 }
 
 export function renderRss(config: Config, feed: FeedView): string {
@@ -127,11 +145,11 @@ export function renderRss(config: Config, feed: FeedView): string {
         el('link', feed.url('xml')),
         el('description', feed.description),
         el('atom:link', undefined, { rel: 'self', href: feed.url('xml'), type: 'application/rss+xml' }),
-        el('atom:link', undefined, { rel: 'webmention', href: mentionUrl(config, feed.group.id) }),
+        el('atom:link', undefined, { rel: 'webmention', href: mentionUrl(config, feed.space) }),
         feed.prevArchiveUrl ? el('atom:link', undefined, { rel: 'prev-archive', href: feed.prevArchiveUrl('xml') }) : '',
         feed.isArchive ? '<fh:archive/>' : '',
-        feed.group.socialSpec ? el('source:account', '@' + feed.group.socialSpec, { service: 'socialspec' }) : '',
-        rssSubmissions(config, feed.group),
+        feed.space.socialSpec ? el('source:account', '@' + feed.space.socialSpec, { service: 'socialspec' }) : '',
+        rssSubmissions(config, feed.space),
         ...feed.items.map(rssItem),
     ].filter(Boolean).join('\n');
     return '<?xml version="1.0" encoding="UTF-8"?>\n' +

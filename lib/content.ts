@@ -4,6 +4,7 @@
 import MarkdownIt from 'markdown-it';
 import { LinkifyIt } from 'linkify-it';
 import { SubmissionRules, TitleRule } from './config';
+import { isForbiddenCodePoint } from './sanitize';
 
 export type FailureCode =
     | 'empty-content' | 'too-short' | 'too-long' | 'malformed-html' | 'forbidden-element' | 'bad-nesting' | 'missing-attribute'
@@ -71,13 +72,30 @@ const fail = (code: FailureCode, text: string): ContentFailure => ({ ok: false, 
 
 const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 
+function numericRefCodePoint(e: string): number {
+    return e[1] == 'x' || e[1] == 'X' ? parseInt(e.substring(2), 16) : parseInt(e.substring(1), 10);
+}
+
+// Decodes character references. References to characters that sanitizing removes (controls, bidi
+// overrides, ...) decode to nothing, so they can't be smuggled in as &#x202E; or &#1;.
 export function decodeEntities(s: string): string {
     return s.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (m, e: string) => {
         if (e[0] == '#') {
-            const code = e[1] == 'x' || e[1] == 'X' ? parseInt(e.substring(2), 16) : parseInt(e.substring(1), 10);
-            try { return String.fromCodePoint(code); } catch { return m; }
+            const code = numericRefCodePoint(e);
+            try {
+                const c = String.fromCodePoint(code);
+                return isForbiddenCodePoint(code) ? '' : c;
+            } catch { return m; }
         }
         return NAMED_ENTITIES[e] ?? m;
+    });
+}
+
+// Removes numeric character references to forbidden characters from raw HTML text, which is kept encoded.
+function dropForbiddenRefs(raw: string): string {
+    return raw.replace(/&(#x[0-9a-fA-F]+|#[0-9]+);/g, (m, e: string) => {
+        const code = numericRefCodePoint(e);
+        return code <= 0x10FFFF && isForbiddenCodePoint(code) ? '' : m;
     });
 }
 
@@ -96,11 +114,11 @@ function tokenize(html: string): Token[] | ContentFailure {
     while (pos < html.length) {
         const lt = html.indexOf('<', pos);
         if (lt < 0) {
-            tokens.push({ type: 'text', raw: html.substring(pos) });
+            tokens.push({ type: 'text', raw: dropForbiddenRefs(html.substring(pos)) });
             break;
         }
         if (lt > pos)
-            tokens.push({ type: 'text', raw: html.substring(pos, lt) });
+            tokens.push({ type: 'text', raw: dropForbiddenRefs(html.substring(pos, lt)) });
         const rest = html.substring(lt);
         if (rest.startsWith('<!--')) {
             const end = html.indexOf('-->', lt + 4);

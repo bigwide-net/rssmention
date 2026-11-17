@@ -1,4 +1,4 @@
-import { ConfigError, DEFAULT_MODERATION_PROMPT, parseConfig } from '../lib/config';
+import { ConfigError, DEFAULT_FEED_MODERATION_PROMPT, DEFAULT_MODERATION_PROMPT, parseConfig } from '../lib/config';
 
 const minimal = (group: any = {}, top: any = {}) => JSON.stringify({
     baseUrl: 'https://rm.example/',
@@ -53,16 +53,52 @@ describe('parseConfig()', () => {
         expect(config).toMatchObject({ varDir: '/data', port: 9000, baseUrl: 'https://other.example' });
     });
 
-    it('parses externalFeeds and posts: false', () => {
+    it('parses posts: false and rejects externalFeeds', () => {
         const g = parseConfig(minimal(), {}).groups.g;
-        expect(g).toMatchObject({ acceptPosts: true });
-        expect(g.externalFeeds).toBeUndefined();
+        expect(g).toMatchObject({ type: 'group', path: 'groups/g', acceptPosts: true, acceptComments: true, acceptMentions: false });
         expect(parseConfig(minimal({ submissionRules: { posts: false } }), {}).groups.g).toMatchObject({ acceptPosts: false, posts: { commentLimit: 1000 } });
-        const ext = parseConfig(minimal({ externalFeeds: ['https://blog.example/feed.xml'] }), {}).groups.g;
-        expect(ext).toMatchObject({ acceptPosts: false, externalFeeds: ['https://blog.example/feed.xml'] });
-        expect(() => parseConfig(minimal({ externalFeeds: [] }), {})).toThrow('externalFeeds');
-        expect(() => parseConfig(minimal({ externalFeeds: ['ftp://x/feed'] }), {})).toThrow('externalFeeds[0]');
-        expect(() => parseConfig(minimal({ externalFeeds: ['https://x/feed#a'] }), {})).toThrow('without fragment');
+        expect(() => parseConfig(minimal({ externalFeeds: ['https://blog.example/feed.xml'] }), {})).toThrow('feedComments');
+    });
+
+    describe('feedComments', () => {
+        const feedConfig = (feed: any = {}, top: any = {}) => JSON.stringify({
+            baseUrl: 'https://rm.example/',
+            ...top,
+            feedComments: { blog: { name: 'Blog', adminToken: 'abcdefghijklmn', feeds: ['https://blog.example/feed.json'], ...feed } },
+        });
+
+        it('applies defaults: comments with socialspec required, no mentions', () => {
+            const config = parseConfig(feedConfig(), {});
+            expect(config.groups).toEqual({});
+            expect(config.feedComments.blog).toMatchObject({
+                type: 'feed', id: 'blog', path: 'comments/blog', name: 'Blog', topic: 'Blog', feeds: ['https://blog.example/feed.json'],
+                acceptPosts: false, acceptComments: true, acceptMentions: false,
+                comments: { title: 'none', requireSocialSpec: true, commentLimit: 20, maxDepth: 5 },
+                posts: { commentLimit: 1000 },
+                moderationPrompt: DEFAULT_FEED_MODERATION_PROMPT,
+            });
+        });
+
+        it('enables mentions, disables comments and sets the thread limit', () => {
+            const blog = parseConfig(feedConfig({ submissionRules: { comments: false, mentions: true, threadLimit: 50 } }), {}).feedComments.blog;
+            expect(blog).toMatchObject({ acceptComments: false, acceptMentions: true, posts: { commentLimit: 50 } });
+            const rules = parseConfig(feedConfig({ submissionRules: { general: { maxLength: 500 }, comments: { requireSocialSpec: false, title: 'allowed' } } }), {}).feedComments.blog;
+            expect(rules.comments).toMatchObject({ maxLength: 500, requireSocialSpec: false, title: 'allowed' });
+        });
+
+        it('rejects invalid feedComments', () => {
+            expect(() => parseConfig(feedConfig({ feeds: [] }), {})).toThrow('feeds');
+            expect(() => parseConfig(feedConfig({ feeds: undefined }), {})).toThrow('feeds');
+            expect(() => parseConfig(feedConfig({ feeds: ['ftp://x/feed'] }), {})).toThrow('feeds[0]');
+            expect(() => parseConfig(feedConfig({ feeds: ['https://x/feed#a'] }), {})).toThrow('without fragment');
+            expect(() => parseConfig(feedConfig({ submissionRules: { mentions: 'yes' } }), {})).toThrow('mentions must be a boolean');
+            expect(() => parseConfig(feedConfig({ submissionRules: { posts: {} } }), {})).toThrow('unknown key posts');
+            expect(() => parseConfig(feedConfig({ submissionRules: { threadLimit: -1 } }), {})).toThrow('threadLimit');
+            expect(() => parseConfig(feedConfig({ submissionRules: { general: { commentLimit: 3 } } }), {})).toThrow('threadLimit');
+            expect(() => parseConfig(feedConfig({ adminToken: 'short' }), {})).toThrow('adminToken');
+            const bad = JSON.stringify({ baseUrl: 'https://x', feedComments: { 'Bad/Id': { name: 'n', adminToken: 'abcdefghijklmn', feeds: ['https://x/f'] } } });
+            expect(() => parseConfig(bad, {})).toThrow('feedComments ids');
+        });
     });
 
     it('strips @ from the group socialspec account', () => {
@@ -72,7 +108,7 @@ describe('parseConfig()', () => {
     it('rejects invalid configs', () => {
         expect(() => parseConfig('{', {})).toThrow(ConfigError);
         expect(() => parseConfig(minimal({}, { baseUrl: 'ftp://x' }), {})).toThrow('baseUrl');
-        expect(() => parseConfig(JSON.stringify({ baseUrl: 'https://x', groups: {} }), {})).toThrow('At least one group');
+        expect(() => parseConfig(JSON.stringify({ baseUrl: 'https://x', groups: {} }), {})).toThrow('At least one group or feedComments');
         expect(() => parseConfig(minimal({ adminToken: 'short' }), {})).toThrow('adminToken');
         expect(() => parseConfig(minimal({ name: undefined }), {})).toThrow('name');
         expect(() => parseConfig(minimal({ submissionRules: { general: { allowFoo: true } } }), {})).toThrow('unknown rule allowFoo');

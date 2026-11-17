@@ -23,10 +23,10 @@ export function newPostGuid(): string {
     return randomString(BASE62, POST_GUID_LENGTH);
 }
 
-// The post guid for a post in an external feed: derived from the post's own guid, so that its
+// The post guid for a post of a feedComments feed: derived from the post's own guid, so that its
 // comments can be found without a lookup table.
-export function externalPostGuid(groupId: string, externalGuid: string): string {
-    let n = BigInt('0x' + createHash('sha256').update(`${groupId}\n${externalGuid}`).digest('hex').substring(0, 16));
+export function externalPostGuid(spaceId: string, externalGuid: string): string {
+    let n = BigInt('0x' + createHash('sha256').update(`${spaceId}\n${externalGuid}`).digest('hex').substring(0, 16));
     let s = '';
     for (let i = 0; i < POST_GUID_LENGTH; i++) {
         s += BASE62[Number(n % 62n)];

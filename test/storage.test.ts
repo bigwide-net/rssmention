@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 import {
-    addFailedComment, addPublishedComment, appendToLog, deleteCommentTree, deletePost, findInLog, findSource, groupDir,
+    addFailedComment, addPublishedComment, appendToLog, deleteCommentTree, deletePost, findInLog, findSource, spaceDir,
     listArchives, readComments, readLog, readPostMeta, setSource, StoredItem, updateInLog, withGroupLock, writePostMeta,
 } from '../lib/storage';
 import { testConfig } from './helpers';
 
-const G = 'twowaves';
+const G = 'groups/twowaves';
 
 function item(id: string, kind: 'post' | 'comment' = 'post'): StoredItem {
     return { id, content_html: `<p>${id}</p>`, date_published: '2026-11-01T00:00:00.000Z', _rssmention: { kind, source: `https://a.example/${id}`, target: 't', submittedAt: '2026-11-01T00:00:00.000Z' } };
@@ -34,9 +34,9 @@ describe('storage', () => {
             expect(a1[49].id).toBe(postId(1));
             expect(await readLog(G, 'published', 2)).toHaveLength(50);
             expect((await readLog(G, 'published', 3)).map(i => i.id)).toEqual(Array.from({ length: 20 }, (_, i) => postId(120 - i)));
-            const file = JSON.parse(readFileSync(path.join(groupDir(G), 'group-published.json'), 'utf8'));
+            const file = JSON.parse(readFileSync(path.join(spaceDir(G), 'group-published.json'), 'utf8'));
             expect(file.version).toBe('https://jsonfeed.org/version/1.1');
-            expect(existsSync(path.join(groupDir(G), 'archive', 'group-published-3.json'))).toBe(true);
+            expect(existsSync(path.join(spaceDir(G), 'archive', 'group-published-3.json'))).toBe(true);
         });
 
         it('returns the archive number', async () => {

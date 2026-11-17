@@ -40,44 +40,45 @@ describe('ids', () => {
 describe('urls', () => {
     const { config, cleanup } = testConfig();
     afterAll(cleanup);
+    const tw = config.groups.twowaves;
     const g = 'https://rm.example/groups/twowaves';
     const post = 'AAAAAAAAAA', comment = 'AAAAAAAAAA-aaaaa', reply = 'AAAAAAAAAA-aaaaa-bbbbb';
 
     it('builds feed urls', () => {
-        expect(commentsFeedUrl(config, 'twowaves', post, 'json')).toBe(`${g}/comments/${post}/comments.json`);
-        expect(commentsFeedUrl(config, 'twowaves', comment, 'xml')).toBe(`${g}/comments/${post}/${comment}/comments.xml`);
-        expect(itemUrl(config, 'twowaves', post, 'json')).toBe(`${g}/posts.json#${post}`);
-        expect(itemUrl(config, 'twowaves', reply, 'json')).toBe(`${g}/comments/${post}/${comment}/comments.json#${reply}`);
+        expect(commentsFeedUrl(config, tw, post, 'json')).toBe(`${g}/comments/${post}/comments.json`);
+        expect(commentsFeedUrl(config, tw, comment, 'xml')).toBe(`${g}/comments/${post}/${comment}/comments.xml`);
+        expect(itemUrl(config, tw, post, 'json')).toBe(`${g}/posts.json#${post}`);
+        expect(itemUrl(config, tw, reply, 'json')).toBe(`${g}/comments/${post}/${comment}/comments.json#${reply}`);
     });
 
     describe('parseTarget()', () => {
         it('accepts the posts feed for new posts', () => {
-            expect(parseTarget(config, 'twowaves', `${g}/posts.xml`)).toEqual({ kind: 'group' });
-            expect(parseTarget(config, 'twowaves', `${g}/posts.json`)).toEqual({ kind: 'group' });
+            expect(parseTarget(config, tw, `${g}/posts.xml`)).toEqual({ kind: 'group' });
+            expect(parseTarget(config, tw, `${g}/posts.json`)).toEqual({ kind: 'group' });
         });
 
         it('accepts posts feeds and archives with #post-guid', () => {
-            expect(parseTarget(config, 'twowaves', `${g}/posts.json#${post}`)).toEqual({ kind: 'post', guid: post });
-            expect(parseTarget(config, 'twowaves', `${g}/archive/posts-3.xml#${post}`)).toEqual({ kind: 'post', guid: post });
+            expect(parseTarget(config, tw, `${g}/posts.json#${post}`)).toEqual({ kind: 'post', guid: post });
+            expect(parseTarget(config, tw, `${g}/archive/posts-3.xml#${post}`)).toEqual({ kind: 'post', guid: post });
         });
 
         it('accepts the comments feed containing the comment', () => {
-            expect(parseTarget(config, 'twowaves', `${g}/comments/${post}/comments.json#${comment}`)).toEqual({ kind: 'comment', guid: comment });
-            expect(parseTarget(config, 'twowaves', `${g}/comments/${post}/${comment}/comments.xml#${reply}`)).toEqual({ kind: 'comment', guid: reply });
+            expect(parseTarget(config, tw, `${g}/comments/${post}/comments.json#${comment}`)).toEqual({ kind: 'comment', guid: comment });
+            expect(parseTarget(config, tw, `${g}/comments/${post}/${comment}/comments.xml#${reply}`)).toEqual({ kind: 'comment', guid: reply });
         });
 
         it('rejects comments in the wrong feed', () => {
-            expect(() => parseTarget(config, 'twowaves', `${g}/comments/${post}/comments.json#${reply}`)).toThrow('does not reference');
-            expect(() => parseTarget(config, 'twowaves', `${g}/comments/BBBBBBBBBB/comments.json#${comment}`)).toThrow('does not reference');
+            expect(() => parseTarget(config, tw, `${g}/comments/${post}/comments.json#${reply}`)).toThrow('does not reference');
+            expect(() => parseTarget(config, tw, `${g}/comments/BBBBBBBBBB/comments.json#${comment}`)).toThrow('does not reference');
         });
 
         it('rejects foreign and malformed targets', () => {
-            expect(() => parseTarget(config, 'twowaves', 'https://other.example/groups/twowaves/posts.xml')).toThrow();
-            expect(() => parseTarget(config, 'twowaves', 'https://rm.example/groups/other/posts.xml')).toThrow();
-            expect(() => parseTarget(config, 'twowaves', `${g}/posts.json#not-a-guid`)).toThrow();
-            expect(() => parseTarget(config, 'twowaves', `${g}/archive/posts-1.json`)).toThrow();
-            expect(() => parseTarget(config, 'twowaves', `${g}/posts.json?x=1`)).toThrow();
-            expect(() => parseTarget(config, 'twowaves', 'nonsense')).toThrow('not a valid URL');
+            expect(() => parseTarget(config, tw, 'https://other.example/groups/twowaves/posts.xml')).toThrow();
+            expect(() => parseTarget(config, tw, 'https://rm.example/groups/other/posts.xml')).toThrow();
+            expect(() => parseTarget(config, tw, `${g}/posts.json#not-a-guid`)).toThrow();
+            expect(() => parseTarget(config, tw, `${g}/archive/posts-1.json`)).toThrow();
+            expect(() => parseTarget(config, tw, `${g}/posts.json?x=1`)).toThrow();
+            expect(() => parseTarget(config, tw, 'nonsense')).toThrow('not a valid URL');
         });
     });
 

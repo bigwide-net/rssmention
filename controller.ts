@@ -9,8 +9,8 @@ import { log as rootLog, LogContext } from './lib/log';
 import { Config, getConfig, setConfig } from './lib/config';
 import { startStatusCleanup } from './lib/status';
 import { mentionHandler, statusHandler } from './handler/mention';
-import { archiveFeedHandler, commentsFeedHandler, postsFeedHandler, submissionsHandler } from './handler/feeds';
-import { approveItemHandler, deleteItemHandler, getItemHandler, listLogHandler, replaceItemHandler, setCommentingHandler } from './handler/admin';
+import { archiveFeedHandler, commentsFeedHandler, feedCommentRepliesHandler, feedPostRepliesHandler, postsFeedHandler, submissionsHandler } from './handler/feeds';
+import { approveItemHandler, deleteItemHandler, getFeedPostHandler, getItemHandler, listLogHandler, replaceItemHandler, setCommentingHandler } from './handler/admin';
 
 function convertHeaders(headers: QueryString.ParsedQs | Record<string, any>): Record<string, string> {
     const result: Record<string, string> = {};
@@ -91,8 +91,6 @@ export function createApp(options: { happyServer?: boolean } = {}): express.Expr
     app.get('/groups/:group/comments/:post/comments.xml', wrapHandlerExpress(commentsFeedHandler('xml')));
     app.get('/groups/:group/comments/:post/:parent/comments.json', wrapHandlerExpress(commentsFeedHandler('json')));
     app.get('/groups/:group/comments/:post/:parent/comments.xml', wrapHandlerExpress(commentsFeedHandler('xml')));
-    app.get('/groups/:group/external/:guid/comments.json', wrapHandlerExpress(commentsFeedHandler('json', { external: true })));
-    app.get('/groups/:group/external/:guid/comments.xml', wrapHandlerExpress(commentsFeedHandler('xml', { external: true })));
     app.get('/groups/:group/submissions.json', wrapHandlerExpress(submissionsHandler('json')));
     app.get('/groups/:group/submissions.xml', wrapHandlerExpress(submissionsHandler('xml')));
     app.post('/groups/:group/mention', wrapHandlerExpress(mentionHandler));
@@ -105,6 +103,20 @@ export function createApp(options: { happyServer?: boolean } = {}): express.Expr
     app.post('/groups/:group/admin/items/:guid/approve', wrapHandlerExpress(approveItemHandler));
     app.put('/groups/:group/admin/posts/:guid/commenting', wrapHandlerExpress(setCommentingHandler));
     app.get('/groups/:group/admin/:log', wrapHandlerExpress(listLogHandler));
+
+    // Comments (and mentions) for feeds hosted elsewhere
+    app.get('/comments/:feed/post/:file', wrapHandlerExpress(feedPostRepliesHandler));
+    app.get('/comments/:feed/comment/:file', wrapHandlerExpress(feedCommentRepliesHandler));
+    app.get('/comments/:feed/submissions.json', wrapHandlerExpress(submissionsHandler('json')));
+    app.get('/comments/:feed/submissions.xml', wrapHandlerExpress(submissionsHandler('xml')));
+    app.post('/comments/:feed/mention', wrapHandlerExpress(mentionHandler));
+    app.get('/comments/:feed/status/:guid', wrapHandlerExpress(statusHandler));
+    app.get('/comments/:feed/admin/items/:guid', wrapHandlerExpress(getItemHandler));
+    app.put('/comments/:feed/admin/items/:guid', wrapHandlerExpress(replaceItemHandler));
+    app.delete('/comments/:feed/admin/items/:guid', wrapHandlerExpress(deleteItemHandler));
+    app.post('/comments/:feed/admin/items/:guid/approve', wrapHandlerExpress(approveItemHandler));
+    app.get('/comments/:feed/admin/posts/:guid', wrapHandlerExpress(getFeedPostHandler));
+    app.put('/comments/:feed/admin/posts/:guid/commenting', wrapHandlerExpress(setCommentingHandler));
 
     finishHappyServerInit?.();
     return app;

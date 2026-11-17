@@ -126,9 +126,9 @@ describe('rssmention API', () => {
                 },
                 _commenting: { about: 'https://rssmention.bigwide.net/', allowComments: true },
             }]);
-            expect(await readLog('twowaves', 'submissions')).toHaveLength(1);
-            expect(await readLog('twowaves', 'published')).toHaveLength(1);
-            expect(await readLog('twowaves', 'failed')).toHaveLength(0);
+            expect(await readLog('groups/twowaves', 'submissions')).toHaveLength(1);
+            expect(await readLog('groups/twowaves', 'published')).toHaveLength(1);
+            expect(await readLog('groups/twowaves', 'failed')).toHaveLength(0);
         });
 
         it('serves the same content as RSS', async () => {
@@ -160,7 +160,7 @@ describe('rssmention API', () => {
         it('honors allowComments=false on the submitted item', async () => {
             sources[BOB] = { status: 200, body: JSON.stringify({ version: 'https://jsonfeed.org/version/1.1', items: [{ id: 'x', title: 'T', content_html: '<p>x</p>', _commenting: { allowComments: false }, _source: { inReplyTo: `${G}/posts.json`, accounts: { socialspec: '@bob.example' } } }] }) };
             const { guid } = await submit(BOB, `${G}/posts.json`);
-            expect((await readPostMeta('twowaves', guid))?.allowComments).toBe(false);
+            expect((await readPostMeta('groups/twowaves', guid))?.allowComments).toBe(false);
             expect((await mention(`${ALICE}#c`, `${G}/posts.json#${guid}`)).body.message).toBe('Comments are disabled for this post');
         });
 
@@ -168,10 +168,10 @@ describe('rssmention API', () => {
             sources[ALICE] = { status: 200, body: rssFeed([alicePost({ title: undefined })]) };
             const { guid, status } = await submit(ALICE, `${G}/posts.xml`);
             expect(status).toEqual({ status: 'failure', code: 'title-required', text: 'Posts require a title' });
-            const failed = await readLog('twowaves', 'failed');
+            const failed = await readLog('groups/twowaves', 'failed');
             expect(failed[0]).toMatchObject({ id: guid, _rssmention: { failure: { code: 'title-required' } } });
-            expect(await readLog('twowaves', 'submissions')).toHaveLength(0);
-            expect(await readLog('twowaves', 'published')).toHaveLength(0);
+            expect(await readLog('groups/twowaves', 'submissions')).toHaveLength(0);
+            expect(await readLog('groups/twowaves', 'published')).toHaveLength(0);
         });
 
         it('writes moderation failures to group-submissions and group-failed', async () => {
@@ -179,9 +179,9 @@ describe('rssmention API', () => {
             sources[ALICE] = { status: 200, body: rssFeed([alicePost()]) };
             const { guid, status } = await submit(ALICE, `${G}/posts.xml`);
             expect(status).toEqual({ status: 'failure', code: 'moderation-rejected', text: 'Looks like spam.' });
-            expect((await readLog('twowaves', 'submissions'))[0].id).toBe(guid);
-            expect((await readLog('twowaves', 'failed'))[0]._rssmention.failure).toEqual({ code: 'moderation-rejected', text: 'Looks like spam.' });
-            expect(await readLog('twowaves', 'published')).toHaveLength(0);
+            expect((await readLog('groups/twowaves', 'submissions'))[0].id).toBe(guid);
+            expect((await readLog('groups/twowaves', 'failed'))[0]._rssmention.failure).toEqual({ code: 'moderation-rejected', text: 'Looks like spam.' });
+            expect(await readLog('groups/twowaves', 'published')).toHaveLength(0);
         });
 
         it('passes title and markdown to moderation', async () => {
@@ -283,8 +283,39 @@ describe('rssmention API', () => {
             expect((await mention(ALICE, `${G}/posts.xml`)).body.message).toBe('This source has already been submitted');
         });
 
-        it('returns 404 for unknown status pages', async () => {
+        it('returns 404 for unknown status pages and 400 for invalid guids', async () => {
             expect((await request(app).get('/groups/twowaves/status/AAAAAAAAAA')).status).toBe(404);
+            expect((await request(app).get('/groups/twowaves/status/%01')).status).toBe(400);
+        });
+
+        it('rejects source and target with line breaks, control or invisible characters', async () => {
+            for (const c of ['\n', '\t', '\u0000', '\u202E', '\u200B']) {
+                const res = await mention(`${ALICE}${c}x`, `${G}/posts.xml`);
+                expect(res.status).toBe(400);
+                expect(res.body.message).toBe('Parameter source contains invalid characters');
+                expect((await mention(ALICE, `${G}/posts${c}.xml`)).body.message).toBe('Parameter target contains invalid characters');
+            }
+        });
+
+        it('stores source and target as normalized ASCII URLs', async () => {
+            const source = 'https://alice.example/feed.xml#pü';
+            sources[ALICE] = { status: 200, body: rssFeed([alicePost({ guid: 'pü' })]) };
+            const { status } = await submit(source, `${G}/posts.xml`);
+            expect(status.status).toBe('success');
+            const [item] = await readLog('groups/twowaves', 'published');
+            expect(item._rssmention.source).toBe('https://alice.example/feed.xml#p%C3%BC');
+        });
+    });
+
+    describe('failed submissions', () => {
+        it('keep only a bounded part of content that failed validation', async () => {
+            sources[ALICE] = { status: 200, body: rssFeed([alicePost({ markdown: 'x'.repeat(200000), title: 'T'.repeat(5000) })]) };
+            const { status } = await submit(ALICE, `${G}/posts.xml`);
+            expect(status.code).toBe('title-too-long');
+            const [failed] = await readLog('groups/twowaves', 'failed');
+            expect(failed.title!.length).toBeLessThanOrEqual(200);
+            expect(failed.content_html.length).toBeLessThanOrEqual(10000);
+            expect(failed._source!.markdown!.length).toBeLessThanOrEqual(10000);
         });
     });
 
@@ -319,7 +350,7 @@ describe('rssmention API', () => {
             const posts = await feed('/groups/twowaves/posts.json');
             expect(posts.items[0]._source.comments).toMatchObject({ count: 1, total: 1 });
             // comments are not written to the group logs
-            expect(await readLog('twowaves', 'submissions')).toHaveLength(1);
+            expect(await readLog('groups/twowaves', 'submissions')).toHaveLength(1);
         });
 
         it('publishes replies to comments', async () => {
@@ -344,8 +375,8 @@ describe('rssmention API', () => {
             sources[BOB] = { status: 200, body: jsonFeed([bobComment('c1', `${G}/posts.json#${post}`, { title: 'Not allowed' })]) };
             const { guid, status } = await submit(`${BOB}#c1`, `${G}/posts.json#${post}`);
             expect(status.code).toBe('title-not-allowed');
-            expect((await readComments('twowaves', post, 'failed'))[0]).toMatchObject({ id: guid, _rssmention: { failure: { code: 'title-not-allowed' } } });
-            expect(await readLog('twowaves', 'failed')).toHaveLength(0);
+            expect((await readComments('groups/twowaves', post, 'failed'))[0]).toMatchObject({ id: guid, _rssmention: { failure: { code: 'title-not-allowed' } } });
+            expect(await readLog('groups/twowaves', 'failed')).toHaveLength(0);
         });
 
         it('writes failed moderation of comments to the comments-failed file', async () => {
@@ -353,7 +384,7 @@ describe('rssmention API', () => {
             moderationAnswer = { ok: false, code: 'moderation-rejected', text: 'Rude.' };
             sources[BOB] = { status: 200, body: jsonFeed([bobComment('c1', `${G}/posts.json#${post}`)]) };
             const { guid } = await submit(`${BOB}#c1`, `${G}/posts.json#${post}`);
-            expect((await readComments('twowaves', post, 'failed'))[0]).toMatchObject({ id: guid, _rssmention: { failure: { code: 'moderation-rejected', text: 'Rude.' } } });
+            expect((await readComments('groups/twowaves', post, 'failed'))[0]).toMatchObject({ id: guid, _rssmention: { failure: { code: 'moderation-rejected', text: 'Rude.' } } });
             expect((await feed('/groups/twowaves/posts.json')).items[0]._source.comments.count).toBe(0);
         });
 
@@ -421,7 +452,7 @@ describe('rssmention API', () => {
             sources[BOB] = { status: 200, body: jsonFeed([bobComment('c1', `${G}/posts.json#${post}`, { markdown: '# Headline' })]) };
             expect((await submit(`${BOB}#c1`, `${G}/posts.json#${post}`)).status.code).toBe('forbidden-element');
             expect((await feed(`/groups/twowaves/comments/${post}/comments.json`)).items[0].content_html).toBe('<p>Better</p>');
-            expect((await readPostMeta('twowaves', post))?.total).toBe(1);
+            expect((await readPostMeta('groups/twowaves', post))?.total).toBe(1);
         });
 
         it('rejects edits that change the target', async () => {
@@ -446,7 +477,7 @@ describe('rssmention API', () => {
             const res = await submit(ALICE, `${G}/posts.xml`);
             expect(res).toEqual({ guid: post, status: { status: 'deleted' } });
             expect((await feed('/groups/twowaves/posts.json')).items).toEqual([]);
-            expect(await readPostMeta('twowaves', post)).toBeUndefined();
+            expect(await readPostMeta('groups/twowaves', post)).toBeUndefined();
         });
 
         it('deletes a comment that disappeared from its feed', async () => {
@@ -474,8 +505,8 @@ describe('rssmention API', () => {
             for (let i = 0; i < 51; i++) {
                 const id = `P${String(i).padStart(9, '0')}`;
                 const item: StoredItem = { id, content_html: `<p>${i}</p>`, date_published: '2026-11-01T00:00:00.000Z', _rssmention: { kind: 'post', source: 's', target: 't', submittedAt: '' } };
-                const archive = await appendToLog('twowaves', 'published', item);
-                await writePostMeta('twowaves', { guid: id, archive, allowComments: true, counts: {}, total: 0 });
+                const archive = await appendToLog('groups/twowaves', 'published', item);
+                await writePostMeta('groups/twowaves', { guid: id, archive, allowComments: true, counts: {}, total: 0 });
             }
             const posts = await feed('/groups/twowaves/posts.json');
             expect(posts.items).toHaveLength(50);
@@ -591,67 +622,6 @@ describe('rssmention API', () => {
             const res = await request(app).post(`/groups/twowaves/admin/items/${guid}/approve`).set(auth);
             expect(res.status).toBe(400);
             expect(res.body.message).toBe('Only submissions that failed moderation can be approved');
-        });
-    });
-
-    describe('comments on external feeds', () => {
-        const BLOG_XML = 'https://blog.example/feed.xml';
-        const BLOG_JSON = 'https://blog.example/feed.json';
-        const blogFeed = (items: any[]) => JSON.stringify({ version: 'https://jsonfeed.org/version/1.1', title: 'Blog', items });
-
-        beforeEach(() => {
-            setup({ externalFeeds: [BLOG_XML, BLOG_JSON] });
-            sources[BLOG_XML] = { status: 200, body: rssFeed([{ guid: 'post-42', title: 'Blog post', html: '<p>Hello</p>' }]) };
-        });
-
-        it('accepts comments on posts of the external feed and serves them by the post guid', async () => {
-            const target = `${BLOG_XML}#post-42`;
-            const guid = await publishComment('c1', target);
-            const feedJson = await feed('/groups/twowaves/external/post-42/comments.json');
-            expect(feedJson.items.map((i: any) => i.id)).toEqual([guid]);
-            expect(feedJson.items[0]._source.inReplyTo).toBe(`${BLOG_JSON}#post-42`);
-            expect(feedJson._submissions.policies.posts).toBeUndefined();
-
-            const postGuid = guid.split('-')[0];
-            expect((await feed(`/groups/twowaves/comments/${postGuid}/comments.json`)).items).toHaveLength(1);
-            const meta = await readPostMeta('twowaves', postGuid);
-            expect(meta).toMatchObject({ external: 'post-42', archive: 0, total: 1 });
-
-            const reply = await publishComment('c2', `${G}/comments/${postGuid}/comments.json#${guid}`);
-            expect(reply.startsWith(guid + '-')).toBe(true);
-            const xml = (await request(app).get('/groups/twowaves/external/post-42/comments.xml')).text;
-            expect(xml).toContain(`<source:inReplyTo>${BLOG_XML}#post-42</source:inReplyTo>`);
-        });
-
-        it('serves an empty comments feed before the first comment', async () => {
-            const res = await request(app).get('/groups/twowaves/external/post-42/comments.json');
-            expect(res.status).toBe(200);
-            expect(res.body.items).toEqual([]);
-        });
-
-        it('rejects unknown posts, closed posts, unreadable feeds and posts to the group', async () => {
-            expect((await mention(`${BOB}#c1`, `${BLOG_XML}#nope`)).body.message).toContain('does not exist');
-            expect((await mention(`${BOB}#c1`, BLOG_XML)).status).toBe(400);
-            expect((await mention(ALICE, `${G}/posts.xml`)).body.message).toContain('no posts feed');
-            expect((await request(app).get('/groups/twowaves/posts.json')).status).toBe(404);
-
-            sources[BLOG_XML] = { status: 200, body: blogFeed([{ id: 'post-42', content_html: '<p>x</p>', _commenting: { allowComments: false } }]) };
-            expect((await mention(`${BOB}#c1`, `${BLOG_XML}#post-42`)).body.message).toBe('Comments are disabled for this post');
-
-            sources[BLOG_XML] = { status: 500, body: '' };
-            sources[BLOG_JSON] = { status: 200, body: blogFeed([{ id: 'post-42', content_html: '<p>x</p>' }]) };
-            await publishComment('c1', `${BLOG_JSON}#post-42`);
-            delete sources[BLOG_JSON];
-            expect((await mention(`${BOB}#c3`, `${BLOG_XML}#post-42`)).body.message).toContain('returned HTTP');
-        });
-
-        it('serves the submissions element for the external feed', async () => {
-            const json = await feed('/groups/twowaves/submissions.json');
-            expect(json._submissions).toMatchObject({ url: `${G}/mention`, republish: 'full' });
-            expect(json._submissions.policies.posts).toBeUndefined();
-            const xml = (await request(app).get('/groups/twowaves/submissions.xml')).text;
-            expect(xml).toContain('<rm:submissions xmlns:rm="https://rssmention.bigwide.net/">');
-            expect(xml).not.toContain('type="posts"');
         });
     });
 

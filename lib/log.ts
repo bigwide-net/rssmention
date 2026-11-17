@@ -1,6 +1,8 @@
 // Minimal stand-in for t-lib-hyperlog: the same call shape (sub/info/warning/error/exception/close),
 // writing to the console. Messages use {0}, {1}... placeholders like hyperlog.
 
+import { escapeForLog } from './sanitize';
+
 export interface LogContext {
     sub(name: string): LogContext;
     info(message: string, ...args: any[]): void;
@@ -17,9 +19,10 @@ export function setLogSilent(value: boolean) {
 }
 
 function format(message: string, args: any[]): string {
-    const text = message.replace(/\{(\d+)\}/g, (_m, i) => String(args[Number(i)]));
+    // Arguments may contain untrusted input: escape line breaks and invisible characters, so they can't forge log lines.
+    const text = message.replace(/\{(\d+)\}/g, (_m, i) => escapeForLog(String(args[Number(i)])));
     const extra = args.filter(a => a && typeof a == 'object');
-    return extra.length && !/\{\d+\}/.test(message) ? text + ' ' + JSON.stringify(extra[0]) : text;
+    return extra.length && !/\{\d+\}/.test(message) ? text + ' ' + escapeForLog(JSON.stringify(extra[0])) : text;
 }
 
 export function createLog(name: string): LogContext {

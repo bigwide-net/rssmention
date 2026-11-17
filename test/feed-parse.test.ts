@@ -2,6 +2,18 @@ import { FeedParseError, findSourceItem, parseFeed } from '../lib/feed-parse';
 import { jsonFeed, rssFeed } from './helpers';
 
 describe('parseFeed()', () => {
+    describe('pagination', () => {
+        it('reads the next page from atom:link rel="next" (RSS) and next_url (JSON)', () => {
+            const rss = `<?xml version="1.0"?><rss version="2.0" xmlns:a="http://www.w3.org/2005/Atom"><channel><title>x</title>
+                <a:link rel="self" href="https://a.example/feed.xml"/><a:link rel="next" href="https://a.example/feed-2.xml"/>
+                <item><guid>g</guid></item></channel></rss>`;
+            expect(parseFeed(rss).next).toBe('https://a.example/feed-2.xml');
+            expect(parseFeed(rssFeed([{ guid: 'g' }])).next).toBeUndefined();
+            expect(parseFeed(jsonFeed([{ guid: 'g' }], undefined, { next_url: 'https://a.example/2.json' })).next).toBe('https://a.example/2.json');
+            expect(parseFeed(jsonFeed([{ guid: 'g' }], undefined, { next_url: 7 })).next).toBeUndefined();
+        });
+    });
+
     describe('RSS', () => {
         it('extracts items with source namespace elements', () => {
             const date = new Date('2026-11-01T10:00:00Z');

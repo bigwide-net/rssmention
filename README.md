@@ -1,7 +1,7 @@
 # rssmention
 
-A [Webmention](https://www.w3.org/TR/webmention/) receiver for RSS and JSON Feed. It hosts comments
-for blogs and other feeds, and Subreddit- and Facebook-Groups-like discussion groups. Users post and
+A [Webmention](https://www.w3.org/TR/webmention/) receiver for RSS and JSON Feed. It hosts comments and
+mentions for blogs and other feeds, and Subreddit- and Facebook-Groups-like discussion groups. Users post and
 comment by publishing an item in their own feed (RSS or JSON Feed) and sending a webmention. The
 protocol is described in [RFC-4: Feed Submissions](https://github.com/bigwide-net/RFCs/blob/main/RFC-4-Feed-Submissions.md)
 and [RFC-5: Comment HTML and Markdown](https://github.com/bigwide-net/RFCs/blob/main/RFC-5-Comment-HTML.md).
@@ -10,7 +10,7 @@ and [RFC-5: Comment HTML and Markdown](https://github.com/bigwide-net/RFCs/blob/
 
 ```
 npm install
-cp rssmention.example.json5 rssmention.json5   # edit baseUrl, groups, adminToken
+cp rssmention.example.json5 rssmention.json5   # edit baseUrl, groups / feedComments, adminToken
 cp .env.example .env
 npm start
 npm test
@@ -26,28 +26,57 @@ npm test
 | `LIMITS_*` | rate limits, see `lib/limits.middleware.ts` |
 | `HAPPY_SECRET` | secret for the `/happy` health endpoints |
 
-## Groups and blogs
+## Groups and feed comments
 
-Every entry in `groups` is one target. Two options in the config change what it does:
+The config has two kinds of targets:
 
-- **Discussion group** (default): the group has its own posts feed. Anyone can post, and comment on posts.
-- **Comments for a blog** (`externalFeeds`): the posts live in a feed elsewhere, for example
-  `externalFeeds: ["https://alice.example/feed.xml", "https://alice.example/feed.json"]`. Comments target
-  `<feed URL>#<post guid>`. rssmention fetches the feed to check that the post exists and that it does
-  not have `allowComments: false` (`rm:commenting`, `_commenting`). The group has no posts feed. The blog
-  links the comments of each post in `source:comments` (JSON: `_source.comments.feedUrl`) as
-  `/groups/<group>/external/<post guid>/comments.(json|xml)`, and includes the `submissions` element from
-  `/groups/<group>/submissions.(json|xml)` in its feed.
-- **Comments only** (`submissionRules: { posts: false }`): a group whose posts are created by the admin
-  only. The post rules still limit the comments per post (`posts.commentLimit`).
+- **Discussion groups** (`groups`): the group has its own posts feed. Anyone can post, and comment on
+  posts. With `submissionRules: { posts: false }`, the posts are created by the admin only. The post
+  rules still limit the comments per post (`posts.commentLimit`).
+- **Comments for a feed** (`feedComments`): the posts live in a feed published elsewhere, for example a
+  blog, or a feed published with [PUPS (RFC-7)](https://github.com/bigwide-net/RFCs/blob/main/RFC-7-Feed-Publishing-with-PUPS.md).
+  rssmention hosts the replies to its posts. `feeds` lists the feed's URLs, e.g. its RSS and its JSON
+  version; all of them count as the same feed. Replies target `<feed URL>#<post guid>`. rssmention
+  fetches the feed to check that the post exists and that it does not have `allowComments: false`
+  (`rm:commenting`, `_commenting`). It follows the feed's pagination (`next_url`, `<atom:link rel="next">`)
+  to find older posts.
 
-rssmention always republishes accepted submissions in full (`republish: "full"`). RFC-4 also defines
-`summary` (an abstract with a link) and `no` (submissions go to the owner only), but rssmention doesn't
-implement them.
+A feed accepts two kinds of replies. Each can be enabled separately:
+
+- **Comments** (`submissionRules.comments`, enabled by default, `false` disables them) are written to be
+  published on this site, usually by a client that keeps an author feed only for commenting. They follow
+  the comment rules and are republished in full. For feeds, `requireSocialSpec` defaults to `true` and
+  `title` to `none`. `threadLimit` (default 1000) limits the comments per post.
+- **Mentions** (`submissionRules.mentions: true`, disabled by default) notify the feed that one of its
+  posts is mentioned by a post in another feed, typically the author's main feed. They have no rules
+  and are not republished in full, only as a link: title, link, author and date. A mention needs a link
+  (`link` / `url`) on the host of its feed, and must either have `inReplyTo` set to the target, or
+  contain the post's URL (as a link or plain text). Mentions can only refer to posts, not to comments,
+  and nobody can reply to them. They can always be updated and deleted by re-sending the webmention, like
+  webmentions in general. A mention that no longer refers to the post is deleted.
+
+If both are enabled, a reply to a post that does not qualify as a comment is published as a mention if
+it qualifies as one. If it is neither, the comment's failure is reported if the item has `inReplyTo`,
+and the mention's otherwise.
+
+To use rssmention for the comments of a feed, the feed's publisher:
+
+1. copies the `submissions` element from `/comments/<feed>/submissions.(json|xml)` into the feed, and
+   adds `<atom:link rel="webmention" href="https://rm.example/comments/<feed>/mention"/>` in RSS;
+2. links the replies of each post in `source:comments` (JSON: `_source.comments.feedUrl`) as
+   `/comments/<feed>/post/<post guid>.(json|xml)`, with the guid percent-encoded. The URL can be built
+   without asking rssmention; the feed is empty before the first reply;
+3. optionally closes posts with `allowComments: false` (`rm:commenting`, `_commenting`).
+
+rssmention republishes comments in full (`republish: "full"`) and mentions as a link (`republish: "link"`
+in the mentions policy). RFC-4 also defines `summary` (an abstract with a link) and `no` (submissions go
+to the owner only), but rssmention doesn't implement them.
 
 ## Endpoints
 
-All paths are below `/groups/<group>`. `.json` serves JSON Feed and `.xml` serves RSS 2.0. Both have the same content.
+`.json` serves JSON Feed and `.xml` serves RSS 2.0. Both have the same content.
+
+Groups, below `/groups/<group>`:
 
 | Method & path | |
 |---|---|
@@ -55,21 +84,33 @@ All paths are below `/groups/<group>`. `.json` serves JSON Feed and `.xml` serve
 | `GET /archive/posts-<n>.(json\|xml)` | archives (RFC 5005: `prev-archive`, JSON Feed: `next_url`) |
 | `GET /comments/<post>/comments.(json\|xml)` | direct replies to a post |
 | `GET /comments/<post>/<comment>/comments.(json\|xml)` | direct replies to a comment |
-| `GET /external/<guid>/comments.(json\|xml)` | direct replies to post `<guid>` of an external feed (empty before the first comment) |
-| `GET /submissions.(json\|xml)` | the `submissions` element, for external feeds to include |
+
+Feed comments, below `/comments/<feed>`:
+
+| Method & path | |
+|---|---|
+| `GET /post/<post guid>.(json\|xml)[?show=comments\|mentions]` | comments and mentions of a post of the feed, by its own guid, oldest first. `show` filters; the default is both |
+| `GET /comment/<comment>.(json\|xml)` | direct replies to a comment |
+
+Both:
+
+| Method & path | |
+|---|---|
+| `GET /submissions.(json\|xml)` | the `submissions` element, for feeds to include |
 | `POST /mention` | webmention endpoint (`source`, `target`; form-encoded or JSON) |
-| `GET /status/<guid>` | submission status: `waiting`, `success`, `deleted` or `failure` (in memory, kept ≥ 1 hour) |
+| `GET /status/<guid>` | submission status: `waiting`, `success`, `deleted` or `failure` (in memory, kept ≥ 1 hour). `success` has `kind: "mention"` if the submission was published as a mention |
 
 Admin endpoints need the header `Authorization: Bearer <adminToken>`:
 
 | Method & path | |
 |---|---|
-| `GET /admin/(submissions\|failed\|published)[?archive=n]` | group logs with internal data |
-| `GET /admin/items/<guid>` | a published post or comment, its post metadata, and failed replies |
-| `PUT /admin/items/<guid>` `{title?, text}` | replaces a post or comment; the author becomes "Admin" |
-| `DELETE /admin/items/<guid>` | deletes a post or comment and all replies to it |
-| `POST /admin/items/<guid>/approve` | publishes a submission that failed moderation |
-| `PUT /admin/posts/<guid>/commenting` `{allowComments}` | enables or disables comments on a post |
+| `GET /groups/<group>/admin/(submissions\|failed\|published)[?archive=n]` | group logs with internal data |
+| `GET …/admin/items/<guid>` | a published post, comment or mention, its post metadata, and failed replies |
+| `PUT …/admin/items/<guid>` `{title?, text}` | replaces a post or comment; the author becomes "Admin" |
+| `DELETE …/admin/items/<guid>` | deletes a post or comment and all replies to it, or a mention |
+| `POST …/admin/items/<guid>/approve` | publishes a submission that failed moderation |
+| `PUT …/admin/posts/<guid>/commenting` `{allowComments}` | enables or disables comments (for feeds: and mentions) on a post. For feeds, `<guid>` is the post's own guid |
+| `GET /comments/<feed>/admin/posts/<guid>` | feeds: the metadata of a post, failed replies and failed mentions |
 
 ## Submitting
 
@@ -77,11 +118,13 @@ Admin endpoints need the header `Authorization: Bearer <adminToken>`:
   left out if the feed has only one item.
 - **Target**:
   - a new post: the group feed (`…/posts.xml` or `…/posts.json`)
-  - a comment on a post: the feed containing the post plus `#post-guid`. For `externalFeeds`, that is
-    the external feed: `https://alice.example/feed.xml#post-42`
+  - a comment on a post: the feed containing the post plus `#post-guid`. For `feedComments`, that is
+    the feed itself: `https://alice.example/feed.xml#post-42`
   - a reply to a comment: the comments feed containing the comment plus `#comment-guid`
-- The item must have `source:inReplyTo` (RSS) or `_source.inReplyTo` (JSON) equal to the target. The `.xml`
-  and `.json` URLs count as the same.
+  - a mention (feeds only): the feed plus `#post-guid`, like a comment on the post
+- The item must have `source:inReplyTo` (RSS) or `_source.inReplyTo` (JSON) equal to the target (mentions
+  may contain the post's URL instead). The `.xml` and `.json` URLs count as the same, and so do all URLs
+  in `feeds`.
 - If `requireSocialSpec` is set, the item or its feed must declare
   `<source:account service="socialspec">@host</source:account>` (JSON: `_source.accounts.socialspec`). The
   host must be the source feed's host name. When `requireSocialSpec` is not set, an account that does
@@ -90,8 +133,12 @@ Admin endpoints need the header `Authorization: Bearer <adminToken>`:
   escaped.
 - A submitted pubDate is kept if it is within 30 minutes of the submission. Otherwise the submission
   time is used.
+- If the item is not in the source feed, rssmention follows its pagination (`next_url`,
+  `<atom:link rel="next">`) on the same host, for up to 10 pages.
 - Re-sending the same source updates the item if `allowEdit` is set. If `allowDelete` is set and the
-  feed answers 404/410, or the item is no longer in the feed, the item is deleted.
+  feed answers 404/410, or the item is no longer in the feed or its pages, the item is deleted. If
+  rssmention gives up before the last page, the item is not deleted. Mentions can always be updated and
+  deleted.
 
 Synchronous checks (URL syntax, target exists, comments allowed, limits, depth) answer with 400. If the
 checks pass, the response is `201` with `Location: <status page>`. Processing then runs asynchronously,
@@ -183,6 +230,8 @@ If the submission is rejected, the status contains a code and a reason, for exam
 `{"status":"failure","code":"title-required","text":"Posts require a title"}`. Other codes include
 `too-short`, `too-long`, `fetch-failed`, `invalid-feed`, `item-not-found`, `ambiguous-source`, `in-reply-to-missing`,
 `in-reply-to-mismatch`, `socialspec-missing`, `socialspec-mismatch`, `moderation-rejected` and `moderation-unavailable`.
+Mentions can fail with `link-missing`, `invalid-url`, `url-too-long`, `link-mismatch` (the link is not on the
+source feed's host), `mention-missing` (neither `inReplyTo` nor the post's URL) and `mention-limit`.
 
 **5. Comment on the post.** The post is now in the group feed with guid `a8Kd03XpQz`. To comment, Bob
 publishes an item with `source:inReplyTo` set to
@@ -220,6 +269,16 @@ so this also works when `allowLinks` is off.
 Length: `maxLength` counts the characters of the submitted Markdown, or of the HTML if there is no
 Markdown. `minLength` (default 10) counts the visible text after rendering, with whitespace collapsed,
 so markup doesn't count. A post that is only an image fails `minLength` unless it is set to 0.
+
+Characters: every string from the network is sanitized before use. Text (titles, author names,
+content) keeps printable Unicode, normalized to NFC, but loses control characters (except tab and
+newline), bidi overrides and isolates, zero-width and other invisible format characters, unpaired
+surrogates and noncharacters, also when written as character references like `&#x202E;`. Author names
+are cut to 100 characters. `source` and `target` must not contain such characters (or line breaks)
+and are stored as normalized, pure-ASCII URLs. Guids of posts of a `feedComments` feed must be
+printable ASCII of at most 512 characters. An item `link`/`url` that is not an absolute http(s) URL of
+at most 512 characters is dropped. Of submissions that fail validation, at most 10,000 characters of
+content are kept.
 
 ## Feed extensions
 
@@ -317,7 +376,8 @@ points to its parent. It has no `title` and no `_commenting`:
 |---|---|---|
 | `_submissions.url` | feed | webmention endpoint for posts and comments |
 | `_submissions.tos` | feed | terms of service, if configured |
-| `_submissions.policies.posts` / `.comments` | feed | the effective rules (see [Content rules](#content-rules) and `rssmention.example.json5`) |
+| `_submissions.policies.posts` / `.comments` | feed | the effective rules (see [Content rules](#content-rules) and `rssmention.example.json5`). For feeds, `comments` also has `threadLimit`, the maximum number of comments per post |
+| `_submissions.policies.mentions` | feed | feeds only: present if mentions are accepted. `republish` is always `"link"`. Not part of RFC-4 yet |
 | `_submissions.republish` | feed | always `"full"`: submissions are republished in full in this feed |
 | `_source.accounts.socialspec` | feed, item | the group's account (feed) or the verified author account (item). RFC-1 map form |
 | `_source.markdown` | item | the Markdown the author submitted, if any. `content_html` is always set |
@@ -326,6 +386,7 @@ points to its parent. It has no `title` and no `_commenting`:
 | `_source.comments.count` | item | number of direct replies |
 | `_source.comments.total` | post | number of comments on all levels (limit: `posts.commentLimit`) |
 | `_commenting.allowComments` | post | `false` if an admin closed the post for comments |
+| `_mention.republish` | mention | marks a mention, which is republished as a link only (`"link"`); RSS: `<rm:mention republish="link"/>`. Not part of RFC-4 yet |
 | `next_url` | feed | the next older archive page |
 
 When submitting, the client feed uses the same fields: `_source.inReplyTo`, `_source.markdown` and
@@ -384,17 +445,19 @@ pages contain `<fh:archive/>` (RFC 5005).
 ## Storage
 
 ```
-$RSSMENTION_VAR/groups/<group>/
-  group-submissions.json, group-failed.json, group-published.json    latest 50, newest first
-  archive/group-<log>-<n>.json                                        50 items per file
+$RSSMENTION_VAR/groups/<group>/  or  $RSSMENTION_VAR/comments/<feed>/
+  group-submissions.json, group-failed.json, group-published.json    groups: latest 50, newest first
+  archive/group-<log>-<n>.json                                        groups: 50 items per file
   comments/<post>/post.json                                           archive no., reply counts, allowComments
   comments/<post>/comments-published-<parent>.json                    direct replies to <parent>
   comments/<post>/comments-failed-<parent>.json                       latest 50 failed replies
+  comments/<post>/mentions-published.json, mentions-failed.json       feeds: mentions of <post>
   sources.json                                                        source URL → guid (edits/deletes)
 ```
 
-Post guids are 10 base62 characters. For posts of external feeds, the post guid is derived from the
-group id and the post's own guid (SHA-256), and `post.json` stores the original guid in `external`. A comment guid is `<parent-guid>-<5 base36 characters>`.
+Post guids are 10 base62 characters. For posts of `feedComments`, the post guid is derived from the
+feed id and the post's own guid (SHA-256), and `post.json` stores the original guid in `external` and its
+link in `externalUrl`. A comment or mention guid is `<parent-guid>-<5 base36 characters>`.
 
 ## License
 

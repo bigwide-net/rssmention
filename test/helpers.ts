@@ -6,7 +6,11 @@ import { Config, parseConfig, setConfig } from '../lib/config';
 export const BASE = 'https://rm.example';
 export const ADMIN_TOKEN = 'admin-token-123456';
 
-export function testConfig(groupOverrides: any = {}): { config: Config, cleanup: () => void } {
+export const BLOG_XML = 'https://blog.example/feed.xml';
+export const BLOG_JSON = 'https://blog.example/feed.json';
+
+// A config with the group "twowaves" and the feedComments space "blog" (feed BLOG_XML / BLOG_JSON).
+export function testConfig(groupOverrides: any = {}, feedOverrides: any = {}): { config: Config, cleanup: () => void } {
     const varDir = mkdtempSync(path.join(os.tmpdir(), 'rssmention-test-'));
     const group = {
         name: 'Two Waves RSS Discussion',
@@ -23,7 +27,15 @@ export function testConfig(groupOverrides: any = {}): { config: Config, cleanup:
             ...(groupOverrides.submissionRules?.moderationLLM ? { moderationLLM: groupOverrides.submissionRules.moderationLLM } : {}),
         },
     };
-    const config = parseConfig(JSON.stringify({ baseUrl: BASE, groups: { twowaves: group } }), { RSSMENTION_VAR: varDir });
+    const blog = {
+        name: 'The Blog',
+        feeds: [BLOG_XML, BLOG_JSON],
+        socialSpec: 'blog.example',
+        adminToken: ADMIN_TOKEN,
+        ...feedOverrides,
+        submissionRules: { general: { minLength: 0 }, ...feedOverrides.submissionRules },
+    };
+    const config = parseConfig(JSON.stringify({ baseUrl: BASE, groups: { twowaves: group }, feedComments: { blog } }), { RSSMENTION_VAR: varDir });
     setConfig(config);
     return { config, cleanup: () => rmSync(varDir, { recursive: true, force: true }) };
 }
@@ -38,6 +50,7 @@ export interface FeedItemSpec {
     author?: string;
     pubDate?: Date;
     link?: string;
+    allowComments?: boolean;
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -64,10 +77,11 @@ ${items.map(i => `<item>
 </rss>`;
 }
 
-export function jsonFeed(items: FeedItemSpec[], feedAccount?: string): string {
+export function jsonFeed(items: FeedItemSpec[], feedAccount?: string, extra: Record<string, any> = {}): string {
     return JSON.stringify({
         version: 'https://jsonfeed.org/version/1.1',
         title: 'Bob',
+        ...extra,
         ...(feedAccount ? { _source: { about: 'x', accounts: { socialspec: feedAccount } } } : {}),
         items: items.map(i => ({
             id: i.guid,
@@ -76,6 +90,7 @@ export function jsonFeed(items: FeedItemSpec[], feedAccount?: string): string {
             ...(i.link ? { url: i.link } : {}),
             ...(i.author ? { authors: [{ name: i.author }] } : {}),
             ...(i.pubDate ? { date_published: i.pubDate.toISOString() } : {}),
+            ...(i.allowComments !== undefined ? { _commenting: { allowComments: i.allowComments } } : {}),
             _source: {
                 about: 'x',
                 ...(i.markdown !== undefined ? { markdown: i.markdown } : {}),
